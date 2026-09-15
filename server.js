@@ -21,10 +21,14 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Middleware للتعرف على المستخدم من الترويسة (Header)
-function authMiddleware(req, res, next) {
-  const userId = req.headers['x-user-id'] || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null);
-  if (userId) {
-    req.user = db.getUserById(userId);
+async function authMiddleware(req, res, next) {
+  try {
+    const userId = req.headers['x-user-id'] || (req.headers.authorization ? req.headers.authorization.replace('Bearer ', '') : null);
+    if (userId) {
+      req.user = await db.getUserById(userId);
+    }
+  } catch (e) {
+    req.user = null;
   }
   next();
 }
@@ -36,14 +40,14 @@ app.use(authMiddleware);
 // ==========================================
 
 // 1. تسجيل الدخول
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) {
       return res.status(400).json({ success: false, error: 'يرجى إدخال اسم المستخدم وكلمة المرور' });
     }
 
-    const user = db.authenticateUser(username, password);
+    const user = await db.authenticateUser(username, password);
     if (!user) {
       return res.status(401).json({ success: false, error: 'اسم المستخدم أو كلمة المرور غير صحيحة' });
     }
@@ -70,19 +74,19 @@ app.get('/api/auth/me', (req, res) => {
 // مسارات إدارة الموظفين - خاصة بالمدير (Admin APIs)
 // ==========================================
 
-app.get('/api/admin/users', (req, res) => {
+app.get('/api/admin/users', async (req, res) => {
   try {
     if (!req.user || req.user.role !== 'admin') {
       return res.status(403).json({ success: false, error: 'غير مصرح لك بالوصول، صلاحية مدير فقط' });
     }
-    const users = db.getAllUsers();
+    const users = await db.getAllUsers();
     res.json({ success: true, users });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-app.post('/api/admin/users', (req, res) => {
+app.post('/api/admin/users', async (req, res) => {
   try {
     if (!req.user || req.user.role !== 'admin') {
       return res.status(403).json({ success: false, error: 'غير مصرح لك بالوصول، صلاحية مدير فقط' });
@@ -91,21 +95,21 @@ app.post('/api/admin/users', (req, res) => {
     if (!name || !username || !password) {
       return res.status(400).json({ success: false, error: 'جميع الحقول مطلوبة' });
     }
-    const newUser = db.createUser({ name, username, password, role });
+    const newUser = await db.createUser({ name, username, password, role });
     res.json({ success: true, user: newUser });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 });
 
-app.put('/api/admin/users/:id', (req, res) => {
+app.put('/api/admin/users/:id', async (req, res) => {
   try {
     if (!req.user || req.user.role !== 'admin') {
       return res.status(403).json({ success: false, error: 'غير مصرح لك بالوصول، صلاحية مدير فقط' });
     }
     const { id } = req.params;
     const { name, username, password, role } = req.body;
-    const updated = db.updateUser(id, { name, username, password, role });
+    const updated = await db.updateUser(id, { name, username, password, role });
     if (!updated) {
       return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
     }
@@ -115,15 +119,15 @@ app.put('/api/admin/users/:id', (req, res) => {
   }
 });
 
-app.delete('/api/admin/users/:id', (req, res) => {
+app.delete('/api/admin/users/:id', async (req, res) => {
   try {
     if (!req.user || req.user.role !== 'admin') {
       return res.status(403).json({ success: false, error: 'غير مصرح لك بالوصول، صلاحية مدير فقط' });
     }
     const { id } = req.params;
-    const deleted = db.deleteUser(id);
+    const deleted = await db.deleteUser(id);
     if (!deleted) {
-      return res.status(404).json({ success: false, error: 'المستخدم غير موجود' });
+      return res.status(404).json({ success: false, error: 'المستخدم غير موجود أو لا يمكن حذفه' });
     }
     res.json({ success: true, user: deleted });
   } catch (err) {
@@ -136,9 +140,9 @@ app.delete('/api/admin/users/:id', (req, res) => {
 // ==========================================
 
 // جلب كل المواد
-app.get('/api/items', (req, res) => {
+app.get('/api/items', async (req, res) => {
   try {
-    const items = db.getAllItems();
+    const items = await db.getAllItems();
     res.json({ success: true, items });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -146,27 +150,26 @@ app.get('/api/items', (req, res) => {
 });
 
 // جلب الإحصائيات
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', async (req, res) => {
   try {
-    const stats = db.getStats();
+    const stats = await db.getStats();
     res.json({ success: true, stats });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// إضافة نقص جديد (المخزن أو المدير)
-app.post('/api/items', (req, res) => {
+// إضافة نقص جديد
+app.post('/api/items', async (req, res) => {
   try {
     const { name, quantity, unit, notes } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, error: 'اسم المادة مطلوب' });
     }
 
-    const item = db.addItem({ name, quantity, unit, notes, user: req.user });
+    const item = await db.addItem({ name, quantity, unit, notes, user: req.user });
     const actorName = req.user ? req.user.name : 'مسؤول المخزن';
 
-    // بث للمشتريات والمخزن بتحديث القائمة وإشعار فوري
     io.emit('item:added', {
       item,
       notification: {
@@ -182,13 +185,13 @@ app.post('/api/items', (req, res) => {
   }
 });
 
-// تحديث حالة الشراء (المشتريات أو المدير)
-app.post('/api/items/:id/purchase', (req, res) => {
+// تحديث حالة الشراء
+app.post('/api/items/:id/purchase', async (req, res) => {
   try {
     const { id } = req.params;
     const { status, quantityPurchased, missingReason } = req.body;
 
-    const item = db.updatePurchaseStatus(id, { status, quantityPurchased, missingReason, user: req.user });
+    const item = await db.updatePurchaseStatus(id, { status, quantityPurchased, missingReason, user: req.user });
     if (!item) {
       return res.status(404).json({ success: false, error: 'المادة غير موجودة' });
     }
@@ -199,7 +202,6 @@ app.post('/api/items/:id/purchase', (req, res) => {
 
     const actorName = req.user ? req.user.name : 'مسؤول المشتريات';
 
-    // بث تحديث للمخزن
     io.emit('item:purchased', {
       item,
       notification: {
@@ -215,7 +217,7 @@ app.post('/api/items/:id/purchase', (req, res) => {
   }
 });
 
-// إشعار بإتمام جولة الشراء وإرسال البضاعة للمخزن
+// إشعار بإتمام جولة الشراء
 app.post('/api/purchases/notify-warehouse', (req, res) => {
   try {
     const { message } = req.body;
@@ -231,13 +233,13 @@ app.post('/api/purchases/notify-warehouse', (req, res) => {
   }
 });
 
-// تأكيد الجرد والاستلام من قبل المخزن أو المدير
-app.post('/api/items/:id/confirm', (req, res) => {
+// تأكيد الجرد والاستلام
+app.post('/api/items/:id/confirm', async (req, res) => {
   try {
     const { id } = req.params;
     const { status, inventoryNotes, receivedQuantity } = req.body;
 
-    const item = db.confirmInventory(id, { status, inventoryNotes, receivedQuantity, user: req.user });
+    const item = await db.confirmInventory(id, { status, inventoryNotes, receivedQuantity, user: req.user });
     if (!item) {
       return res.status(404).json({ success: false, error: 'المادة غير موجودة' });
     }
@@ -260,10 +262,10 @@ app.post('/api/items/:id/confirm', (req, res) => {
 });
 
 // إعادة طلب مادة
-app.post('/api/items/:id/reorder', (req, res) => {
+app.post('/api/items/:id/reorder', async (req, res) => {
   try {
     const { id } = req.params;
-    const item = db.reorderItem(id, req.user);
+    const item = await db.reorderItem(id, req.user);
     if (!item) {
       return res.status(404).json({ success: false, error: 'المادة غير موجودة' });
     }
@@ -283,11 +285,11 @@ app.post('/api/items/:id/reorder', (req, res) => {
   }
 });
 
-// حذف مادة (صلاحية المدير أو موظف المخزن)
-app.delete('/api/items/:id', (req, res) => {
+// حذف مادة
+app.delete('/api/items/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const item = db.deleteItem(id);
+    const item = await db.deleteItem(id);
     if (!item) {
       return res.status(404).json({ success: false, error: 'المادة غير موجودة' });
     }
@@ -299,13 +301,13 @@ app.delete('/api/items/:id', (req, res) => {
   }
 });
 
-// إحصائيات للمدير وتصدير البيانات
-app.get('/api/admin/export', (req, res) => {
+// تصدير البيانات للمدير
+app.get('/api/admin/export', async (req, res) => {
   try {
     if (!req.user || req.user.role !== 'admin') {
       return res.status(403).json({ success: false, error: 'غير مصرح' });
     }
-    const items = db.getAllItems();
+    const items = await db.getAllItems();
     res.json({ success: true, items });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -320,7 +322,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// Kill previous server if port is busy or let it re-bind
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 خادم النقوصات والمشتريات والحسابات يعمل على المنفذ: ${PORT}`);
+  console.log(`🚀 خادم النقوصات والمشتريات يعمل بنجاح على المنفذ: ${PORT}`);
 });

@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
+const { Pool } = require('pg');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 
-// Ensure data folder exists
+// Ensure data folder exists for local fallback
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -15,7 +16,7 @@ const DEFAULT_USERS = [
     name: 'المدير العام',
     username: 'admin',
     password: '123456',
-    role: 'admin', // admin | warehouse | purchasing
+    role: 'admin',
     createdAt: new Date().toISOString()
   },
   {
@@ -36,7 +37,72 @@ const DEFAULT_USERS = [
   }
 ];
 
-function readData() {
+// Database Pool (لو تم توفير رابط سحابي أونلاين DATABASE_URL)
+let pool = null;
+const isCloudDB = !!process.env.DATABASE_URL;
+
+if (isCloudDB) {
+  console.log('🌐 تم اكتشاف رابط قاعدة بيانات سحابية أونلاين (PostgreSQL)...');
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+
+  // إنشاء الجداول السحابية تلقائياً
+  initCloudDB().catch(err => console.error('Cloud DB Init Error:', err));
+}
+
+async function initCloudDB() {
+  if (!pool) return;
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        role VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS items (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        quantity NUMERIC NOT NULL DEFAULT 1,
+        unit VARCHAR(50) DEFAULT 'قطعة',
+        notes TEXT,
+        status VARCHAR(50) DEFAULT 'pending',
+        quantity_purchased NUMERIC DEFAULT 0,
+        missing_reason TEXT,
+        inventory_notes TEXT,
+        created_by JSONB,
+        purchased_by JSONB,
+        confirmed_by JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        purchased_at TIMESTAMP WITH TIME ZONE,
+        completed_at TIMESTAMP WITH TIME ZONE
+      );
+    `);
+
+    // تهيئة المستخدمين الافتراضيين إذا كانت قاعدة البيانات جديدة
+    const { rows } = await client.query('SELECT COUNT(*) FROM users');
+    if (parseInt(rows[0].count) === 0) {
+      for (const u of DEFAULT_USERS) {
+        await client.query(
+          'INSERT INTO users (id, name, username, password, role) VALUES ($1, $2, $3, $4, $5)',
+          [u.id, u.name, u.username, u.password, u.role]
+        );
+      }
+      console.log('✅ تم تهيئة حسابات الموظفين الافتراضية في قاعدة البيانات السحابية.');
+    }
+  } finally {
+    client.release();
+  }
+}
+
+// دالة قراءة الملف المحلي
+function readLocalData() {
   try {
     if (!fs.existsSync(DATA_FILE)) {
       const initial = { items: [], users: DEFAULT_USERS, history: [] };
@@ -45,30 +111,24 @@ function readData() {
     }
     const raw = fs.readFileSync(DATA_FILE, 'utf-8');
     const data = JSON.parse(raw);
-    
-    // Ensure users array exists
     if (!data.users || data.users.length === 0) {
       data.users = DEFAULT_USERS;
-      writeData(data);
+      writeLocalData(data);
     }
-    if (!data.items) {
-      data.items = [];
-    }
+    if (!data.items) data.items = [];
     return data;
   } catch (err) {
-    console.error('Error reading data file:', err);
     return { items: [], users: DEFAULT_USERS, history: [] };
   }
 }
 
-function writeData(data) {
+function writeLocalData(data) {
   try {
     const tempFile = `${DATA_FILE}.tmp`;
     fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tempFile, DATA_FILE);
     return true;
   } catch (err) {
-    console.error('Error saving data:', err);
     return false;
   }
 }
@@ -77,115 +137,156 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
 }
 
+// كائن db الشامل (يعمل محلياً وسحابياً)
 const db = {
-  // ===================== إدارة المستخدمين والمصادقة =====================
-  
-  authenticateUser(username, password) {
-    const data = readData();
+  // مصادقة المستخدم
+  async authenticateUser(username, password) {
     const uname = (username || '').trim().toLowerCase();
     const pass = (password || '').trim();
+
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query(
+        'SELECT id, name, username, role FROM users WHERE LOWER(username) = $1 AND password = $2',
+        [uname, pass]
+      );
+      return rows[0] || null;
+    }
+
+    const data = readLocalData();
     const user = data.users.find(u => u.username.toLowerCase() === uname && u.password === pass);
     if (!user) return null;
-    
-    // لا نرجع كلمة المرور في بيانات الجلسة
     const { password: _, ...safeUser } = user;
     return safeUser;
   },
 
-  getAllUsers() {
-    const data = readData();
+  async getAllUsers() {
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query('SELECT id, name, username, role, created_at FROM users ORDER BY created_at ASC');
+      return rows;
+    }
+    const data = readLocalData();
     return data.users.map(({ password: _, ...user }) => user);
   },
 
-  getUserById(id) {
-    const data = readData();
+  async getUserById(id) {
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query('SELECT id, name, username, role FROM users WHERE id = $1', [id]);
+      return rows[0] || null;
+    }
+    const data = readLocalData();
     const user = data.users.find(u => u.id === id);
     if (!user) return null;
     const { password: _, ...safeUser } = user;
     return safeUser;
   },
 
-  createUser({ name, username, password, role }) {
-    const data = readData();
+  async createUser({ name, username, password, role }) {
     const uname = (username || '').trim().toLowerCase();
-    
-    if (data.users.some(u => u.username.toLowerCase() === uname)) {
-      throw new Error('اسم المستخدم مسجل مسبقاً، يرجى اختيار اسم آخر');
+    const newId = 'usr_' + generateId();
+
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query(
+        'INSERT INTO users (id, name, username, password, role) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, username, role, created_at',
+        [newId, (name || '').trim(), uname, (password || '1234').trim(), role || 'warehouse']
+      );
+      return rows[0];
     }
 
+    const data = readLocalData();
+    if (data.users.some(u => u.username.toLowerCase() === uname)) {
+      throw new Error('اسم المستخدم مسجل مسبقاً');
+    }
     const newUser = {
-      id: 'usr_' + generateId(),
+      id: newId,
       name: (name || '').trim(),
       username: uname,
       password: (password || '1234').trim(),
-      role: role || 'warehouse', // admin | warehouse | purchasing
+      role: role || 'warehouse',
       createdAt: new Date().toISOString()
     };
-
     data.users.push(newUser);
-    writeData(data);
-
+    writeLocalData(data);
     const { password: _, ...safeUser } = newUser;
     return safeUser;
   },
 
-  updateUser(id, { name, username, password, role }) {
-    const data = readData();
-    const user = data.users.find(u => u.id === id);
-    if (!user) return null;
+  async updateUser(id, { name, username, password, role }) {
+    if (isCloudDB && pool) {
+      const fields = [];
+      const values = [];
+      let idx = 1;
 
-    if (username) {
-      const uname = username.trim().toLowerCase();
-      const existing = data.users.find(u => u.username.toLowerCase() === uname && u.id !== id);
-      if (existing) {
-        throw new Error('اسم المستخدم مستخدم من قبل موظف آخر');
-      }
-      user.username = uname;
+      if (name) { fields.push(`name = $${idx++}`); values.push(name.trim()); }
+      if (username) { fields.push(`username = $${idx++}`); values.push(username.trim().toLowerCase()); }
+      if (password && password.trim()) { fields.push(`password = $${idx++}`); values.push(password.trim()); }
+      if (role) { fields.push(`role = $${idx++}`); values.push(role); }
+
+      values.push(id);
+      const query = `UPDATE users SET ${fields.join(', ')} WHERE id = $${idx} RETURNING id, name, username, role`;
+      const { rows } = await pool.query(query, values);
+      return rows[0] || null;
     }
 
+    const data = readLocalData();
+    const user = data.users.find(u => u.id === id);
+    if (!user) return null;
     if (name) user.name = name.trim();
+    if (username) user.username = username.trim().toLowerCase();
     if (password && password.trim()) user.password = password.trim();
     if (role) user.role = role;
-
-    writeData(data);
+    writeLocalData(data);
     const { password: _, ...safeUser } = user;
     return safeUser;
   },
 
-  deleteUser(id) {
-    const data = readData();
-    const user = data.users.find(u => u.id === id);
-    if (!user) return null;
-
-    // حماية المدير الأساسي من الحذف
-    if (user.username === 'admin') {
-      throw new Error('لا يمكن حذف حساب المدير العام الرئيسي');
+  async deleteUser(id) {
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query('DELETE FROM users WHERE id = $1 AND username != $2 RETURNING id, name, username', [id, 'admin']);
+      return rows[0] || null;
     }
 
+    const data = readLocalData();
+    const user = data.users.find(u => u.id === id);
+    if (!user || user.username === 'admin') return null;
     const idx = data.users.findIndex(u => u.id === id);
     const [deleted] = data.users.splice(idx, 1);
-    writeData(data);
-
+    writeLocalData(data);
     const { password: _, ...safeUser } = deleted;
     return safeUser;
   },
 
-  // ===================== إدارة المواد والنقوصات =====================
+  // إدارة المواد والنقوصات
+  async getAllItems() {
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query(`
+        SELECT 
+          id, name, quantity, unit, notes, status, 
+          quantity_purchased as "quantityPurchased",
+          missing_reason as "missingReason",
+          inventory_notes as "inventoryNotes",
+          created_by as "createdBy",
+          purchased_by as "purchasedBy",
+          confirmed_by as "confirmedBy",
+          created_at as "createdAt",
+          purchased_at as "purchasedAt",
+          completed_at as "completedAt"
+        FROM items ORDER BY created_at DESC
+      `);
+      return rows;
+    }
 
-  getAllItems() {
-    const data = readData();
+    const data = readLocalData();
     return data.items || [];
   },
 
-  addItem({ name, quantity, unit, notes, user }) {
-    const data = readData();
+  async addItem({ name, quantity, unit, notes, user }) {
     const newItem = {
       id: generateId(),
       name: (name || '').trim(),
       quantity: Number(quantity) || 1,
       unit: (unit || 'قطعة').trim(),
       notes: (notes || '').trim(),
-      status: 'pending', // pending | purchased | partial | unavailable | completed
+      status: 'pending',
       quantityPurchased: 0,
       missingReason: '',
       inventoryNotes: '',
@@ -197,91 +298,125 @@ const db = {
       completedAt: null
     };
 
+    if (isCloudDB && pool) {
+      await pool.query(`
+        INSERT INTO items (id, name, quantity, unit, notes, status, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `, [newItem.id, newItem.name, newItem.quantity, newItem.unit, newItem.notes, newItem.status, JSON.stringify(newItem.createdBy)]);
+      return newItem;
+    }
+
+    const data = readLocalData();
     data.items.unshift(newItem);
-    writeData(data);
+    writeLocalData(data);
     return newItem;
   },
 
-  updatePurchaseStatus(id, { status, quantityPurchased, missingReason, user }) {
-    const data = readData();
+  async updatePurchaseStatus(id, { status, quantityPurchased, missingReason, user }) {
+    const purchasedBy = user ? { id: user.id, name: user.name } : null;
+    const purchasedAt = new Date().toISOString();
+
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query(`
+        UPDATE items 
+        SET status = $1, quantity_purchased = $2, missing_reason = $3, purchased_by = $4, purchased_at = $5
+        WHERE id = $6
+        RETURNING *
+      `, [status, Number(quantityPurchased) || 0, (missingReason || '').trim(), JSON.stringify(purchasedBy), purchasedAt, id]);
+      return rows[0] || null;
+    }
+
+    const data = readLocalData();
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
-
-    item.status = status; // purchased | partial | unavailable
-    if (quantityPurchased !== undefined) {
-      item.quantityPurchased = Number(quantityPurchased);
-    } else if (status === 'purchased') {
-      item.quantityPurchased = item.quantity;
-    }
-    if (missingReason !== undefined) {
-      item.missingReason = missingReason.trim();
-    }
-    item.purchasedBy = user ? { id: user.id, name: user.name } : null;
-    item.purchasedAt = new Date().toISOString();
-
-    writeData(data);
+    item.status = status;
+    if (quantityPurchased !== undefined) item.quantityPurchased = Number(quantityPurchased);
+    if (missingReason !== undefined) item.missingReason = missingReason.trim();
+    item.purchasedBy = purchasedBy;
+    item.purchasedAt = purchasedAt;
+    writeLocalData(data);
     return item;
   },
 
-  confirmInventory(id, { status, inventoryNotes, receivedQuantity, user }) {
-    const data = readData();
+  async confirmInventory(id, { status, inventoryNotes, receivedQuantity, user }) {
+    const confirmedBy = user ? { id: user.id, name: user.name } : null;
+    const completedAt = new Date().toISOString();
+
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query(`
+        UPDATE items 
+        SET status = $1, inventory_notes = $2, confirmed_by = $3, completed_at = $4
+        WHERE id = $5
+        RETURNING *
+      `, [status || 'completed', (inventoryNotes || '').trim(), JSON.stringify(confirmedBy), completedAt, id]);
+      return rows[0] || null;
+    }
+
+    const data = readLocalData();
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
-
     item.status = status || 'completed';
-    if (inventoryNotes !== undefined) {
-      item.inventoryNotes = inventoryNotes.trim();
-    }
-    if (receivedQuantity !== undefined) {
-      item.receivedQuantity = Number(receivedQuantity);
-    }
-    item.confirmedBy = user ? { id: user.id, name: user.name } : null;
-    item.completedAt = new Date().toISOString();
-
-    writeData(data);
+    if (inventoryNotes !== undefined) item.inventoryNotes = inventoryNotes.trim();
+    if (receivedQuantity !== undefined) item.receivedQuantity = Number(receivedQuantity);
+    item.confirmedBy = confirmedBy;
+    item.completedAt = completedAt;
+    writeLocalData(data);
     return item;
   },
 
-  deleteItem(id) {
-    const data = readData();
+  async deleteItem(id) {
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query('DELETE FROM items WHERE id = $1 RETURNING id', [id]);
+      return rows[0] || null;
+    }
+    const data = readLocalData();
     const idx = data.items.findIndex(i => i.id === id);
     if (idx !== -1) {
-      const removed = data.items.splice(idx, 1)[0];
-      writeData(data);
+      const [removed] = data.items.splice(idx, 1);
+      writeLocalData(data);
       return removed;
     }
     return null;
   },
 
-  reorderItem(id, user) {
-    const data = readData();
+  async reorderItem(id, user) {
+    const createdBy = user ? { id: user.id, name: user.name } : null;
+    const createdAt = new Date().toISOString();
+
+    if (isCloudDB && pool) {
+      const { rows } = await pool.query(`
+        UPDATE items 
+        SET status = 'pending', quantity_purchased = 0, missing_reason = '', inventory_notes = '', 
+            purchased_at = NULL, completed_at = NULL, created_at = $1, created_by = $2
+        WHERE id = $3
+        RETURNING *
+      `, [createdAt, JSON.stringify(createdBy), id]);
+      return rows[0] || null;
+    }
+
+    const data = readLocalData();
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
-
     item.status = 'pending';
     item.quantityPurchased = 0;
     item.missingReason = '';
     item.inventoryNotes = '';
     item.purchasedAt = null;
     item.completedAt = null;
-    item.createdAt = new Date().toISOString();
-    if (user) {
-      item.createdBy = { id: user.id, name: user.name };
-    }
-
-    writeData(data);
+    item.createdAt = createdAt;
+    if (user) item.createdBy = createdBy;
+    writeLocalData(data);
     return item;
   },
 
-  getStats() {
-    const items = this.getAllItems();
+  async getStats() {
+    const items = await this.getAllItems();
     return {
       total: items.length,
       pendingCount: items.filter(i => i.status === 'pending').length,
       purchasedCount: items.filter(i => i.status === 'purchased' || i.status === 'partial').length,
       unavailableCount: items.filter(i => i.status === 'unavailable').length,
-      completedCount: items.filter(i => i.status === 'completed').length,
-      usersCount: readData().users.length
+      completedCount: items.filter(i => i.status === 'completed').length
     };
   }
 };
