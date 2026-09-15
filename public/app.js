@@ -1090,48 +1090,94 @@ elements.soundToggleBtn.addEventListener('click', () => {
 });
 
 // ==========================================
-// ربط Socket.io للتزامن اللحظي
+// ربط التزامن اللحظي والإشعارات الذكية
 // ==========================================
+let previousItemsCount = -1;
+let previousPendingCheck = -1;
+
 function initSocket() {
-  socket = io();
+  if (typeof io === 'function') {
+    try {
+      socket = io({ autoConnect: false, timeout: 3000 });
+      socket.connect();
 
-  socket.on('item:added', (data) => {
-    fetchItems();
-    if (!currentUser) return;
-    if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
-      playNotificationSound('chime');
-      showToast(data.notification.title, data.notification.body, '📦', 'blue');
+      socket.on('item:added', (data) => {
+        fetchItems();
+        if (!currentUser) return;
+        if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
+          playNotificationSound('chime');
+          showToast(data.notification.title, data.notification.body, '📦', 'blue');
+        }
+      });
+
+      socket.on('item:purchased', (data) => {
+        fetchItems();
+        if (!currentUser) return;
+        if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
+          playNotificationSound('chime');
+          showToast(data.notification.title, data.notification.body, '🛒', 'emerald');
+        }
+      });
+
+      socket.on('notification:delivery', (data) => {
+        if (!currentUser) return;
+        if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
+          playNotificationSound('alert');
+          showToast(data.title, data.body, '🚚', 'amber');
+        }
+      });
+
+      socket.on('item:confirmed', (data) => {
+        fetchItems();
+        if (!currentUser) return;
+        if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
+          showToast(data.notification.title, data.notification.body, '✅', 'emerald');
+        }
+      });
+
+      socket.on('item:deleted', () => {
+        fetchItems();
+      });
+    } catch (e) {
+      console.log('Socket.io fallback to Cloudflare smart sync');
     }
-  });
+  }
 
-  socket.on('item:purchased', (data) => {
-    fetchItems();
+  // مزامنة ذكية دورية تعمل تلقائياً على كلاودفلاير أونلاين
+  setInterval(async () => {
     if (!currentUser) return;
-    if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
-      playNotificationSound('chime');
-      showToast(data.notification.title, data.notification.body, '🛒', 'emerald');
-    }
-  });
+    try {
+      const res = await fetch('/api/items', { headers: authHeaders() });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.items)) {
+        const newItems = data.items;
+        
+        // كشف وصول مواد ناقصة جديدة للمشتريات
+        if (previousItemsCount !== -1 && newItems.length > previousItemsCount) {
+          if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
+            playNotificationSound('chime');
+            showToast('نقص جديد في المخزن! 📦', 'تم تسجيل مواد ناقصة جديدة بانتظار الشراء', '📦', 'blue');
+          }
+        }
 
-  socket.on('notification:delivery', (data) => {
-    if (!currentUser) return;
-    if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
-      playNotificationSound('alert');
-      showToast(data.title, data.body, '🚚', 'amber');
-    }
-  });
+        // كشف اكتمال شراء مواد جديدة للمخزن
+        const readyForCheck = newItems.filter(i => i.status === 'purchased' || i.status === 'partial').length;
+        if (previousPendingCheck !== -1 && readyForCheck > previousPendingCheck) {
+          if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
+            playNotificationSound('alert');
+            showToast('مشتريات جاهزة للجرد! 🚚', 'قام موظف المشتريات بشراء المواد، يرجى جردها', '🛒', 'amber');
+          }
+        }
 
-  socket.on('item:confirmed', (data) => {
-    fetchItems();
-    if (!currentUser) return;
-    if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
-      showToast(data.notification.title, data.notification.body, '✅', 'emerald');
+        previousItemsCount = newItems.length;
+        previousPendingCheck = readyForCheck;
+        itemsData = newItems;
+        renderAll();
+      }
+    } catch (err) {
+      // الصمت في حال فقدان الاتصال اللحظي
     }
-  });
-
-  socket.on('item:deleted', () => {
-    fetchItems();
-  });
+  }, 3500);
 }
 
 function formatTime(isoStr) {

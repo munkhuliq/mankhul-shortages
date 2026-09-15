@@ -1,0 +1,19 @@
+{
+  "name": "mankhul-shortages",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-15",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "mankhul-db",
+      "database_id": "07ee07d4-7ce9-41f0-aed4-96d48c18a546"
+    }
+  ]
+}
