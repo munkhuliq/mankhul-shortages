@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>نظام متابعة النقوصات والمشتريات</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <meta name="theme-color" content="#0f172a">
+  <!-- Google Fonts: Cairo -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Socket.io -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Cairo', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen pb-20 select-none">
+
+  <!-- Toast Notification Bar (أعلى الشاشة للإشعارات الفورية) -->
+  <div id="toast-container" class="fixed top-3 left-3 right-3 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ==================== شاشة تسجيل الدخول ==================== -->
+  <div id="login-screen" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4 border border-slate-200">
+      <div class="text-center">
+        <div class="w-16 h-16 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 mx-auto flex items-center justify-center text-3xl shadow-lg mb-3">
+          📦
+        </div>
+        <h2 class="text-lg font-extrabold text-slate-900">نظام نقوصات منخل</h2>
+        <p class="text-xs text-slate-500 mt-1">يرجى تسجيل الدخول لمتابعة العمل</p>
+      </div>
+
+      <form id="login-form" class="space-y-3 pt-2">
+        <div id="login-error" class="hidden bg-rose-50 border border-rose-200 text-rose-700 text-xs p-2.5 rounded-xl font-bold text-center"></div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">اسم المستخدم</label>
+          <input type="text" id="login-username" required placeholder="مثال: store أو buyer أو admin" 
+                 class="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white transition-all font-semibold">
+        </div>
+
+        <div>
+          <label class="block text-xs font-bold text-slate-600 mb-1">كلمة المرور / الرمز</label>
+          <input type="password" id="login-password" required placeholder="••••" 
+                 class="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white transition-all">
+        </div>
+
+        <button type="submit" id="login-btn" 
+                class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold rounded-xl shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all mt-2">
+          <span>دخول للنظام</span>
+          <span>🔐</span>
+        </button>
+      </form>
+
+      <!-- أزرار تعبئة سريعة للتجربة -->
+      <div class="pt-2 border-t border-slate-100">
+        <p class="text-[11px] text-slate-400 text-center mb-2">الدخول السريع بحساب تجريبي:</p>
+        <div class="grid grid-cols-3 gap-1.5 text-[11px]">
+          <button type="button" onclick="quickFillLogin('admin', '123456')" class="py-1.5 px-1 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-lg border border-purple-200">
+            👔 المدير
+          </button>
+          <button type="button" onclick="quickFillLogin('store', '1234')" class="py-1.5 px-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg border border-emerald-200">
+            🏬 المخزن
+          </button>
+          <button type="button" onclick="quickFillLogin('buyer', '1234')" class="py-1.5 px-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200">
+            🛒 المشتريات
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header: شريط العنوان والتبديل بين الأدوار ومعلومات المستخدم -->
+  <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-40">
+    <div class="max-w-md mx-auto px-4 py-2.5">
+      <!-- الشريط العلوي الرئيسي -->
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white text-base shadow">
+            📦
+          </div>
+          <div>
+            <h1 class="text-sm font-bold leading-tight flex items-center gap-1.5">
+              <span>نقوصات منخل</span>
+              <span id="user-role-badge" class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-600 text-white font-bold"></span>
+            </h1>
+            <p class="text-[11px] text-slate-300 flex items-center gap-1">
+              <span id="user-display-name">...</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- أزرار الإجراءات السريعة في الهيدر -->
+        <div class="flex items-center gap-1.5">
+          <button id="sound-toggle-btn" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs flex items-center" title="الصوت">
+            <span id="sound-icon">🔔</span>
+          </button>
+          <button id="refresh-btn" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs" title="تحديث">
+            🔄
+          </button>
+          <button id="logout-btn" class="p-1.5 px-2 rounded-lg bg-rose-900/50 hover:bg-rose-800 text-rose-300 text-xs flex items-center gap-1" title="تسجيل الخروج">
+            <span>🚪</span>
+            <span class="text-[10px] font-bold">خروج</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- أشرطة التبويب حسب صلاحية المستخدم -->
+      <nav id="main-nav-bar" class="grid grid-cols-3 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center">
+        <button id="tab-warehouse-btn" class="py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1">
+          <span>🏬</span>
+          <span>المخزن</span>
+          <span id="warehouse-badge" class="hidden bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full">0</span>
+        </button>
+        <button id="tab-purchasing-btn" class="py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white">
+          <span>🛒</span>
+          <span>المشتريات</span>
+          <span id="purchasing-badge" class="hidden bg-amber-500 text-slate-900 text-[10px] px-1.5 py-0.2 rounded-full font-extrabold">0</span>
+        </button>
+        <button id="tab-archive-btn" class="py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white">
+          <span>📋</span>
+          <span>السجل</span>
+        </button>
+        <!-- تبويب المدير (يظهر للمدير فقط) -->
+        <button id="tab-admin-btn" class="hidden py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-purple-300 hover:text-white">
+          <span>👥</span>
+          <span>الموظفين</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- المحتوى الرئيسي المتجاوب للهاتف -->
+  <main class="max-w-md mx-auto px-4 py-3">
+
+    <!-- ==================== شاشة موظف المخزن ==================== -->
+    <section id="warehouse-view" class="space-y-4">
+      
+      <!-- بطاقة إضافة نقص جديد (سريعة جداً) -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+        <h2 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs">➕</span>
+          <span>تسجيل مادة ناقصة في المخزن</span>
+        </h2>
+        <form id="add-item-form" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">اسم المادة / الصنف *</label>
+            <input type="text" id="item-name" required placeholder="مثال: منخل قياس 40، زيت هيدروليك..." 
+                   class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-slate-50 focus:bg-white transition-all">
+          </div>
+
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">الكمية المطلوبة *</label>
+              <input type="number" id="item-quantity" min="1" step="any" value="1" required 
+                     class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-center font-bold">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">الوحدة</label>
+              <select id="item-unit" class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 font-semibold">
+                <option value="قطعة">قطعة</option>
+                <option value="كرتون">كرتون</option>
+                <option value="كيس">كيس</option>
+                <option value="متر">متر</option>
+                <option value="كيلو">كيلو</option>
+                <option value="لتر">لتر</option>
+                <option value="طقم / سيت">طقم / سيت</option>
+                <option value="شدة">شدة</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">ملاحظة أو مواصفات (اختياري)</label>
+            <input type="text" id="item-notes" placeholder="مثال: أصلي، قياس خاص، مستعجل..." 
+                   class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50">
+          </div>
+
+          <button type="submit" id="submit-item-btn" 
+                  class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all">
+            <span>إرسال للمشتريات فوراً</span>
+            <span>🚀</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- تبويبات فرعية داخل المخزن -->
+      <div class="flex border-b border-slate-200">
+        <button id="wh-subtab-pending" class="flex-1 pb-2 text-xs font-bold text-emerald-600 border-b-2 border-emerald-600 text-center flex items-center justify-center gap-1">
+          <span>بانتظار الشراء</span>
+          <span id="wh-pending-count" class="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded-full">0</span>
+        </button>
+        <button id="wh-subtab-check" class="flex-1 pb-2 text-xs font-bold text-slate-400 border-b-2 border-transparent text-center flex items-center justify-center gap-1">
+          <span>جاهزة للجرد والاستلام</span>
+          <span id="wh-check-count" class="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded-full">0</span>
+        </button>
+      </div>
+
+      <!-- قائمة المواد بانتظار الشراء -->
+      <div id="wh-pending-section" class="space-y-2.5">
+        <div id="wh-pending-list" class="space-y-2.5"></div>
+      </div>
+
+      <!-- قائمة المواد الجاهزة للجرد والتأكيد -->
+      <div id="wh-check-section" class="space-y-2.5 hidden">
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 flex items-start gap-2">
+          <span class="text-base">ℹ️</span>
+          <span>المواد أدناه قام موظف المشتريات بشرائها، يرجى فحصها في المخزن وتأكيد استلامها أو تسجيل النقص إن وجد.</span>
+        </div>
+        <div id="wh-check-list" class="space-y-2.5"></div>
+      </div>
+
+    </section>
+
+    <!-- ==================== شاشة موظف المشتريات ==================== -->
+    <section id="purchasing-view" class="space-y-4 hidden">
+      
+      <!-- بطاقة تنبيه زر إشعار المخزن -->
+      <div class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-2xl p-4 shadow-md">
+        <div class="flex items-center justify-between mb-2">
+          <div>
+            <h2 class="text-sm font-bold">مهام المشتريات المطلوبة</h2>
+            <p class="text-xs text-blue-100 mt-0.5" id="purchasing-summary-text">لديك 0 مادة مطلوبة للشراء</p>
+          </div>
+          <span class="text-3xl">🛒</span>
+        </div>
+        <button id="notify-warehouse-btn" class="w-full mt-2 py-2.5 bg-white text-blue-800 hover:bg-blue-50 font-bold rounded-xl text-xs shadow flex items-center justify-center gap-2 active:scale-[0.98] transition-all">
+          <span>📢 إشعار المخزن بأن المواد تم شراؤها وجاهزة للجرد</span>
+        </button>
+      </div>
+
+      <!-- فلاتر سريعة لموظف المشتريات -->
+      <div class="flex gap-1.5 overflow-x-auto pb-1 text-xs no-scrollbar">
+        <button class="pur-filter-btn px-3 py-1.5 rounded-lg font-bold bg-blue-600 text-white whitespace-nowrap" data-filter="pending">
+          المطلوبة للشراء (<span id="pur-count-pending">0</span>)
+        </button>
+        <button class="pur-filter-btn px-3 py-1.5 rounded-lg font-bold bg-white text-slate-600 border border-slate-200 whitespace-nowrap" data-filter="purchased">
+          تم شراؤها (<span id="pur-count-purchased">0</span>)
+        </button>
+        <button class="pur-filter-btn px-3 py-1.5 rounded-lg font-bold bg-white text-slate-600 border border-slate-200 whitespace-nowrap" data-filter="unavailable">
+          غير متوفرة بالسوق (<span id="pur-count-unavailable">0</span>)
+        </button>
+      </div>
+
+      <!-- قائمة المشتريات -->
+      <div id="purchasing-list" class="space-y-2.5"></div>
+
+    </section>
+
+    <!-- ==================== شاشة السجل والتقارير والأرشيف ==================== -->
+    <section id="archive-view" class="space-y-4 hidden">
+      <!-- إحصائيات سريعة -->
+      <div class="grid grid-cols-2 gap-2">
+        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-semibold text-slate-500">إجمالي المواد المسجلة</p>
+          <p id="stat-total" class="text-xl font-black text-slate-800 mt-1">0</p>
+        </div>
+        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-semibold text-emerald-600">مستلمة ومجردة بالكامل</p>
+          <p id="stat-completed" class="text-xl font-black text-emerald-600 mt-1">0</p>
+        </div>
+        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-semibold text-amber-600">قيد الشراء والمتابعة</p>
+          <p id="stat-pending" class="text-xl font-black text-amber-600 mt-1">0</p>
+        </div>
+        <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm text-center">
+          <p class="text-[11px] font-semibold text-rose-600">نواقص لم تجهز / غير متوفرة</p>
+          <p id="stat-missing" class="text-xl font-black text-rose-600 mt-1">0</p>
+        </div>
+      </div>
+
+      <!-- مربع البحث السريع وزر التصدير -->
+      <div class="flex gap-2">
+        <input type="text" id="archive-search" placeholder="🔍 بحث في السجل..." 
+               class="flex-1 text-xs px-3 py-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500">
+        <button onclick="window.print()" class="px-3 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow">
+          <span>🖨️</span>
+          <span>طباعة</span>
+        </button>
+      </div>
+
+      <!-- قائمة السجل -->
+      <div id="archive-list" class="space-y-2"></div>
+    </section>
+
+    <!-- ==================== شاشة إدارة الموظفين (لوحة تحكم المدير) ==================== -->
+    <section id="admin-view" class="space-y-4 hidden">
+      <div class="bg-gradient-to-r from-purple-700 to-indigo-800 text-white rounded-2xl p-4 shadow-md">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-bold">لوحة تحكم المدير العام 👔</h2>
+            <p class="text-xs text-purple-200 mt-0.5">إدارة حسابات وصلاحيات الموظفين والنظام</p>
+          </div>
+          <span class="text-3xl">👥</span>
+        </div>
+      </div>
+
+      <!-- بطاقة إضافة موظف جديد -->
+      <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-200">
+        <h3 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+          <span class="w-6 h-6 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center text-xs">➕</span>
+          <span>إضافة حساب موظف جديد</span>
+        </h3>
+        <form id="add-user-form" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">اسم الموظف الكامل *</label>
+            <input type="text" id="new-user-name" required placeholder="مثال: علي كريم" 
+                   class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-500">
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">اسم المستخدم (للدخول) *</label>
+              <input type="text" id="new-user-username" required placeholder="مثال: ali" 
+                     class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-500 font-bold">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">كلمة المرور / الرمز *</label>
+              <input type="text" id="new-user-password" required value="1234" 
+                     class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-500 font-bold text-center">
+            </div>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">الدور والصلاحية *</label>
+            <select id="new-user-role" class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 font-bold">
+              <option value="warehouse">🏬 موظف المخزن (تسجيل النواقص والجرد)</option>
+              <option value="purchasing">🛒 موظف المشتريات (شراء المواد والتجهيز)</option>
+              <option value="admin">👔 مدير عام (صلاحيات كاملة وتحكم)</option>
+            </select>
+          </div>
+          <button type="submit" class="w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-xs shadow flex items-center justify-center gap-1 active:scale-95">
+            <span>حفظ وإنشاء الحساب</span>
+            <span>✨</span>
+          </button>
+        </form>
+      </div>
+
+      <!-- قائمة الموظفين المسجلين -->
+      <div class="space-y-2">
+        <h3 class="text-xs font-bold text-slate-600 px-1">الموظفون المسجلون في النظام (<span id="admin-users-count">0</span>)</h3>
+        <div id="admin-users-list" class="space-y-2"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Modal تفاعلي: تحديد شراء جزئي أو غير متوفر -->
+  <div id="purchase-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl space-y-3">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 id="modal-title" class="text-sm font-bold text-slate-800">تحديث حالة المادة</h3>
+        <button id="modal-close-btn" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+      <div id="modal-item-info" class="text-xs bg-slate-50 p-2.5 rounded-xl text-slate-700"></div>
+
+      <div id="modal-partial-fields" class="space-y-2 hidden">
+        <label class="block text-xs font-semibold text-slate-600">الكمية التي تم شراؤها فعلياً</label>
+        <input type="number" id="modal-purchased-qty" min="0.1" step="any" 
+               class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 text-center font-bold">
+      </div>
+
+      <div id="modal-reason-fields" class="space-y-2 hidden">
+        <label class="block text-xs font-semibold text-slate-600">سبب عدم التوفر / ملاحظة</label>
+        <input type="text" id="modal-missing-reason" placeholder="مثال: مقطوع من السوق، سعر مبالغ فيه..." 
+               class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300">
+      </div>
+
+      <div class="flex gap-2 pt-2">
+        <button id="modal-confirm-btn" class="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow">
+          تأكيد وحفظ
+        </button>
+        <button id="modal-cancel-btn" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs">
+          إلغاء
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal تفاعلي: جرد المخزن (تأكيد استلام أو تسجيل نقص) -->
+  <div id="inventory-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl w-full max-w-sm p-4 shadow-2xl space-y-3">
+      <div class="flex items-center justify-between border-b pb-2">
+        <h3 class="text-sm font-bold text-slate-800">جرد واستلام المادة في المخزن</h3>
+        <button id="inv-modal-close-btn" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+      <div id="inv-modal-item-info" class="text-xs bg-slate-50 p-2.5 rounded-xl text-slate-700"></div>
+
+      <div class="space-y-2">
+        <label class="block text-xs font-semibold text-slate-600">الكمية المستلمة في المخزن</label>
+        <input type="number" id="inv-modal-received-qty" min="0" step="any" 
+               class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 text-center font-bold">
+      </div>
+
+      <div class="space-y-2">
+        <label class="block text-xs font-semibold text-slate-600">ملاحظة الجرد إن وجدت</label>
+        <input type="text" id="inv-modal-notes" placeholder="مثال: مطابقة للمواصفات، متبقي 2 لم تجهز..." 
+               class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300">
+      </div>
+
+      <div class="flex flex-col gap-2 pt-2">
+        <button id="inv-modal-complete-btn" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow flex items-center justify-center gap-1">
+          <span>✅ تأكيد الاستلام وإغلاق النقص</span>
+        </button>
+        <button id="inv-modal-unsupplied-btn" class="w-full py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold rounded-xl text-xs">
+          ⚠️ تسجيل كنقص متبقي لم يجهز بالكامل
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

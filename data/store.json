@@ -1,0 +1,59 @@
+{
+  "items": [
+    {
+      "id": "mu33yn8nb3xk",
+      "name": "نومي بصرة",
+      "quantity": 1,
+      "unit": "كيس",
+      "notes": "",
+      "status": "pending",
+      "quantityPurchased": 0,
+      "missingReason": "",
+      "inventoryNotes": "",
+      "createdAt": "2026-09-15T20:12:13.991Z",
+      "purchasedAt": null,
+      "completedAt": null
+    },
+    {
+      "id": "mu33vwpb462e",
+      "name": "سكر ستيفيا",
+      "quantity": 1,
+      "unit": "كرتون",
+      "notes": "",
+      "status": "purchased",
+      "quantityPurchased": 1,
+      "missingReason": "",
+      "inventoryNotes": "",
+      "createdAt": "2026-09-15T20:10:06.287Z",
+      "purchasedAt": "2026-09-15T20:10:41.613Z",
+      "completedAt": null
+    }
+  ],
+  "history": [],
+  "users": [
+    {
+      "id": "usr_admin",
+      "name": "المدير العام",
+      "username": "admin",
+      "password": "123456",
+      "role": "admin",
+      "createdAt": "2026-09-15T20:15:22.686Z"
+    },
+    {
+      "id": "usr_store",
+      "name": "مسؤول المخزن",
+      "username": "store",
+      "password": "1234",
+      "role": "warehouse",
+      "createdAt": "2026-09-15T20:15:22.687Z"
+    },
+    {
+      "id": "usr_buyer",
+      "name": "مسؤول المشتريات",
+      "username": "buyer",
+      "password": "1234",
+      "role": "purchasing",
+      "createdAt": "2026-09-15T20:15:22.687Z"
+    }
+  ]
+}
