@@ -1,3 +1,4 @@
 node_modules/
 .system_generated/
 *.log
+cloudflared.exe
