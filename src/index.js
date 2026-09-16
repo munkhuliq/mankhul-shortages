@@ -274,8 +274,8 @@ export default {
 
       // 7. تأكيد الجرد والاستلام
       if (path.match(/^\/api\/items\/[^\/]+\/confirm$/) && method === 'POST') {
-        const id = path.split('/')[3];
-        const body = await request.json();
+        const id = decodeURIComponent(path.split('/')[3]);
+        const body = await request.json().catch(() => ({}));
         const { status, inventoryNotes, receivedQuantity } = body;
         const confirmedBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
@@ -291,7 +291,7 @@ export default {
 
       // 8. إعادة الطلب
       if (path.match(/^\/api\/items\/[^\/]+\/reorder$/) && method === 'POST') {
-        const id = path.split('/')[3];
+        const id = decodeURIComponent(path.split('/')[3]);
         const createdBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
 
@@ -317,8 +317,8 @@ export default {
 
       // 9. تعديل مادة (الاسم، الكمية، الوحدة، الملاحظة، الأولوية، السعر)
       if (path.match(/^\/api\/items\/[^\/]+$/) && method === 'PUT') {
-        const id = path.split('/')[3];
-        const body = await request.json();
+        const id = decodeURIComponent(path.split('/')[3]);
+        const body = await request.json().catch(() => ({}));
         const { name, quantity, unit, notes, priority, price } = body;
 
         await db.prepare(`
@@ -345,7 +345,7 @@ export default {
 
       // 10. حذف مادة
       if (path.match(/^\/api\/items\/[^\/]+$/) && method === 'DELETE') {
-        const id = path.split('/')[3];
+        const id = decodeURIComponent(path.split('/')[3]);
         await db.prepare('DELETE FROM items WHERE id = ?').bind(id).run();
         return jsonResponse({ success: true });
       }

@@ -356,38 +356,54 @@ function playNotificationSound(type = 'chime') {
 
 // عرض تنبيه منبثق (Toast)
 function showToast(title, message, icon = '🔔', color = 'emerald') {
-  const toast = document.createElement('div');
-  const bgColors = {
-    emerald: 'bg-emerald-600',
-    blue: 'bg-blue-600',
-    purple: 'bg-purple-600',
-    amber: 'bg-amber-600',
-    rose: 'bg-rose-600',
-    slate: 'bg-slate-800'
-  };
-  const bg = bgColors[color] || 'bg-slate-800';
+  try {
+    const toast = document.createElement('div');
+    const bgColors = {
+      emerald: 'bg-emerald-600',
+      blue: 'bg-blue-600',
+      purple: 'bg-purple-600',
+      amber: 'bg-amber-600',
+      rose: 'bg-rose-600',
+      slate: 'bg-slate-800'
+    };
+    const bg = bgColors[color] || 'bg-slate-800';
 
-  toast.className = `toast-anim ${bg} text-white px-4 py-3 rounded-2xl shadow-xl flex items-start gap-3 border border-white/20 pointer-events-auto`;
-  toast.innerHTML = `
-    <span class="text-xl">${icon}</span>
-    <div class="flex-1">
-      <h4 class="font-bold text-xs">${title}</h4>
-      <p class="text-[11px] text-white/90 mt-0.5">${message}</p>
-    </div>
-    <button class="text-white/60 hover:text-white text-xs font-bold" onclick="this.parentElement.remove()">✕</button>
-  `;
+    toast.className = `toast-anim ${bg} text-white px-4 py-3 rounded-2xl shadow-xl flex items-start gap-3 border border-white/20 pointer-events-auto`;
+    toast.innerHTML = `
+      <span class="text-xl">${icon}</span>
+      <div class="flex-1">
+        <h4 class="font-bold text-xs">${title}</h4>
+        <p class="text-[11px] text-white/90 mt-0.5">${message}</p>
+      </div>
+      <button class="text-white/60 hover:text-white text-xs font-bold" onclick="this.parentElement.remove()">✕</button>
+    `;
 
-  elements.toastContainer.appendChild(toast);
-
-  setTimeout(() => {
-    if (toast.parentElement) {
-      toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
-      setTimeout(() => toast.remove(), 300);
+    const container = elements.toastContainer || document.getElementById('toast-container') || document.body;
+    if (container) {
+      container.appendChild(toast);
     }
-  }, 5000);
 
-  if (Notification && Notification.permission === 'granted') {
-    new Notification(title, { body: message });
+    setTimeout(() => {
+      try {
+        if (toast.parentElement) {
+          toast.classList.add('opacity-0', 'transition-opacity', 'duration-300');
+          setTimeout(() => {
+            try { toast.remove(); } catch (e) {}
+          }, 300);
+        }
+      } catch (e) {}
+    }, 4500);
+
+    // التحقق الآمن من دعم وتصريح إشعارات النظام بالهواتف والمتصفحات
+    try {
+      if (typeof window !== 'undefined' && 'Notification' in window && window.Notification && window.Notification.permission === 'granted') {
+        new window.Notification(title, { body: message });
+      }
+    } catch (nErr) {
+      // تجاهل أخطاء الهواتف (مثل أندرويد كروم التي تشترط Service Worker)
+    }
+  } catch (err) {
+    console.warn('showToast error handled gracefully:', err);
   }
 }
 
@@ -830,18 +846,19 @@ elements.addUserForm.addEventListener('submit', async (e) => {
       headers: authHeaders(),
       body: JSON.stringify({ name, username, password, role })
     });
-    const data = await res.json();
-    if (data.success) {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       elements.newUserName.value = '';
       elements.newUserUsername.value = '';
       elements.newUserPassword.value = '1234';
-      fetchAdminUsers();
       showToast('تمت الإضافة', `تم إنشاء حساب للموظف ${name}`, '👤', 'purple');
+      try { await fetchAdminUsers(); } catch (e) {}
     } else {
-      alert(data.error || 'فشل إنشاء الحساب');
+      showToast('تعذر الإضافة', data.error || 'فشل إنشاء الحساب', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('حدث خطأ');
+    console.error('Add user error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لإنشاء الحساب', '⚠️', 'rose');
   }
 });
 
@@ -855,14 +872,15 @@ async function changeUserPassword(id, name) {
       headers: authHeaders(),
       body: JSON.stringify({ password: newPass.trim() })
     });
-    const data = await res.json();
-    if (data.success) {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       showToast('تم التعديل', `تم تغيير كلمة مرور ${name} بنجاح`, '🔑', 'purple');
     } else {
-      alert(data.error || 'تعذر التعديل');
+      showToast('تعذر التعديل', data.error || 'تعذر تعديل كلمة المرور', '⚠️', 'rose');
     }
   } catch (e) {
-    alert('حدث خطأ');
+    console.error('Change password error:', e);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتعديل كلمة المرور', '⚠️', 'rose');
   }
 }
 
@@ -873,15 +891,16 @@ async function deleteUser(id, name) {
       method: 'DELETE',
       headers: authHeaders()
     });
-    const data = await res.json();
-    if (data.success) {
-      fetchAdminUsers();
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       showToast('تم الحذف', `تم حذف حساب ${name}`, '🗑️', 'slate');
+      try { await fetchAdminUsers(); } catch (e) {}
     } else {
-      alert(data.error || 'تعذر الحذف');
+      showToast('تعذر الحذف', data.error || 'تعذر حذف الموظف من الخادم', '⚠️', 'rose');
     }
   } catch (e) {
-    alert('حدث خطأ');
+    console.error('Delete user error:', e);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لحذف الموظف', '⚠️', 'rose');
   }
 }
 
@@ -905,8 +924,8 @@ elements.addItemForm.addEventListener('submit', async (e) => {
       headers: authHeaders(),
       body: JSON.stringify({ name, quantity, unit, notes, priority })
     });
-    const data = await res.json();
-    if (data.success) {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       elements.itemName.value = '';
       elements.itemNotes.value = '';
       elements.itemQuantity.value = 1;
@@ -921,11 +940,14 @@ elements.addItemForm.addEventListener('submit', async (e) => {
       }
 
       elements.itemName.focus();
-      fetchItems();
       showToast('تم الإرسال بنجاح', `تم إرسال ${name} للمشتريات فوراً`, '🚀', 'emerald');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر الإرسال', data.error || 'فشل إرسال المادة للخادم', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('حدث خطأ أثناء الإرسال');
+    console.error('Add item error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لإرسال المادة', '⚠️', 'rose');
   }
 });
 
@@ -936,13 +958,16 @@ async function markPurchasedFast(id) {
       headers: authHeaders(),
       body: JSON.stringify({ status: 'purchased' })
     });
-    const data = await res.json();
-    if (data.success) {
-      fetchItems();
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       showToast('تم تسجيل الشراء', 'تم حفظ المادة كـ مشتراة بنجاح', '✅', 'emerald');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر التحديث', data.error || 'فشل تسجيل الشراء في الخادم', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('تعذر تحديث الحالة');
+    console.error('Mark purchased fast error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتسجيل الشراء', '⚠️', 'rose');
   }
 }
 
@@ -988,7 +1013,7 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
   if (currentModalAction === 'partial') {
     const qty = parseFloat(elements.modalPurchasedQty.value);
     if (!qty || qty <= 0) {
-      alert('يرجى تحديد كمية صحيحة');
+      showToast('تنبيه', 'يرجى تحديد كمية صحيحة', '⚠️', 'amber');
       return;
     }
     body.status = 'partial';
@@ -1011,14 +1036,17 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
       headers: authHeaders(),
       body: JSON.stringify(body)
     });
-    const data = await res.json();
-    if (data.success) {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       elements.purchaseModal.classList.add('hidden');
-      fetchItems();
       showToast('تم التحديث', 'تم حفظ بيانات الشراء', '👍', 'blue');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر التحديث', data.error || 'فشل حفظ بيانات الشراء', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('حدث خطأ');
+    console.error('Purchase modal error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم', '⚠️', 'rose');
   }
 });
 
@@ -1034,13 +1062,16 @@ async function confirmInventoryFast(id) {
       headers: authHeaders(),
       body: JSON.stringify({ status: 'completed', receivedQuantity: received, inventoryNotes: 'مستلمة ومطابقة' })
     });
-    const data = await res.json();
-    if (data.success) {
-      fetchItems();
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       showToast('اكتمل الجرد', 'تم تأكيد الاستلام ودخول المادة للمخزن', '✅', 'emerald');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر التأكيد', data.error || 'فشل تأكيد الاستلام من الخادم', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('حدث خطأ أثناء التأكيد');
+    console.error('Confirm fast error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتأكيد الاستلام', '⚠️', 'rose');
   }
 }
 
@@ -1069,14 +1100,17 @@ elements.invModalCompleteBtn.addEventListener('click', async () => {
       headers: authHeaders(),
       body: JSON.stringify({ status: 'completed', receivedQuantity: receivedQty, inventoryNotes: notes })
     });
-    const data = await res.json();
-    if (data.success) {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       elements.inventoryModal.classList.add('hidden');
-      fetchItems();
       showToast('اكتمل الجرد', 'تم حفظ جرد المادة في المخزن', '📦', 'emerald');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر الحفظ', data.error || 'فشل تأكيد الاستلام من الخادم', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('حدث خطأ');
+    console.error('Inv complete error:', err);
+    showToast('خطأ في الاتصال', 'تعذر حفظ الجرد بسبب مشكلة في الاتصال', '⚠️', 'rose');
   }
 });
 
@@ -1090,14 +1124,17 @@ elements.invModalUnsuppliedBtn.addEventListener('click', async () => {
       headers: authHeaders(),
       body: JSON.stringify({ status: 'unavailable', inventoryNotes: notes })
     });
-    const data = await res.json();
-    if (data.success) {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       elements.inventoryModal.classList.add('hidden');
-      fetchItems();
       showToast('تم التسجيل', 'تم قيد المادة كنقص لم يجهز لمتابعته', '⚠️', 'rose');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر التسجيل', data.error || 'فشل تسجيل النقص في الخادم', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('حدث خطأ');
+    console.error('Inv unsupplied error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم', '⚠️', 'rose');
   }
 });
 
@@ -1111,26 +1148,35 @@ elements.notifyWarehouseBtn.addEventListener('click', async () => {
       headers: authHeaders(),
       body: JSON.stringify({ message: 'تم شراء المواد من السوق وهي جاهزة للجرد في المخزن.' })
     });
-    const data = await res.json();
-    if (data.success) {
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       showToast('تم التنبيه 📢', 'وصل الإشعار فوراً لهاتف موظف المخزن', '🚚', 'blue');
+    } else {
+      showToast('تعذر التنبيه', data.error || 'فشل إرسال الإشعار للمخزن', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('حدث خطأ في الإرسال');
+    console.error('Notify warehouse error:', err);
+    showToast('خطأ في الاتصال', 'تعذر إرسال الإشعار', '⚠️', 'rose');
   }
 });
 
 async function revertToPending(id) {
   try {
-    await fetch(`/api/items/${id}/purchase`, {
+    const res = await fetch(`/api/items/${id}/purchase`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ status: 'pending', missingReason: '' })
     });
-    fetchItems();
-    showToast('تم التعديل', 'تمت إعادة المادة لقائمة المطلوب شراؤها', '🔄', 'blue');
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
+      showToast('تم التعديل', 'تمت إعادة المادة لقائمة المطلوب شراؤها', '🔄', 'blue');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر التعديل', data.error || 'فشل تعديل الحالة', '⚠️', 'rose');
+    }
   } catch (e) {
-    alert('حدث خطأ');
+    console.error('Revert error:', e);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم', '⚠️', 'rose');
   }
 }
 
@@ -1140,13 +1186,16 @@ async function reorderItem(id) {
       method: 'POST',
       headers: authHeaders()
     });
-    const data = await res.json();
-    if (data.success) {
-      fetchItems();
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       showToast('تمت إعادة الطلب', 'تمت إضافة المادة كطلب جديد للمشتريات', '🔄', 'emerald');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر الطلب', data.error || 'فشلت إعادة الطلب من الخادم', '⚠️', 'rose');
     }
   } catch (e) {
-    alert('حدث خطأ');
+    console.error('Reorder error:', e);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم', '⚠️', 'rose');
   }
 }
 
@@ -1157,13 +1206,16 @@ async function deleteItem(id) {
       method: 'DELETE',
       headers: authHeaders()
     });
-    const data = await res.json();
-    if (data.success) {
-      fetchItems();
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
       showToast('تم الحذف', 'تم حذف المادة بنجاح', '🗑️', 'slate');
+      try { await fetchItems(); } catch (e) {}
+    } else {
+      showToast('تعذر الحذف', data.error || 'فشلت عملية الحذف من الخادم', '⚠️', 'rose');
     }
   } catch (err) {
-    alert('تعذر الحذف');
+    console.error('Delete item error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لحذف المادة', '⚠️', 'rose');
   }
 }
 
