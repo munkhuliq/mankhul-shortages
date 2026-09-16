@@ -16,6 +16,15 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
 }
 
+function safeJsonParse(val) {
+  if (!val) return null;
+  try {
+    return JSON.parse(val);
+  } catch (e) {
+    return typeof val === 'string' ? { id: '', name: val } : null;
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -28,6 +37,13 @@ export default {
           'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
           'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-user-id'
         }
+      });
+    }
+
+    // سد ثغرة 404 لملف socket.io عند العمل على سيرفرليس كلاودفلاير
+    if (url.pathname === '/socket.io/socket.io.js') {
+      return new Response('window.io = null;', {
+        headers: { 'Content-Type': 'application/javascript; charset=utf-8' }
       });
     }
 
@@ -132,7 +148,7 @@ export default {
         }
       }
 
-      // 4. جلب جميع المواد
+      // 4. جلب جميع المواد والإشعارات اللحظية
       if (path === '/api/items' && method === 'GET') {
         const { results } = await db.prepare('SELECT * FROM items ORDER BY created_at DESC').all();
         const items = results.map(row => ({
@@ -143,16 +159,29 @@ export default {
           notes: row.notes,
           status: row.status,
           quantityPurchased: row.quantity_purchased,
+          receivedQuantity: row.received_quantity || 0,
           missingReason: row.missing_reason,
           inventoryNotes: row.inventory_notes,
-          createdBy: row.created_by ? JSON.parse(row.created_by) : null,
-          purchasedBy: row.purchased_by ? JSON.parse(row.purchased_by) : null,
-          confirmedBy: row.confirmed_by ? JSON.parse(row.confirmed_by) : null,
+          createdBy: safeJsonParse(row.created_by),
+          purchasedBy: safeJsonParse(row.purchased_by),
+          confirmedBy: safeJsonParse(row.confirmed_by),
           createdAt: row.created_at,
           purchasedAt: row.purchased_at,
           completedAt: row.completed_at
         }));
-        return jsonResponse({ success: true, items });
+
+        // جلب الإشعارات النشطة الحديثة (خلال آخر دقيقتين)
+        let notifications = [];
+        try {
+          const notifRes = await db.prepare(
+            "SELECT id, title, body, target_role as \"targetRole\", created_at as \"createdAt\" FROM notifications WHERE created_at >= datetime('now', '-2 minutes') ORDER BY created_at DESC LIMIT 10"
+          ).all();
+          notifications = notifRes.results || [];
+        } catch (e) {
+          notifications = [];
+        }
+
+        return jsonResponse({ success: true, items, notifications });
       }
 
       // 5. إضافة نقص جديد
@@ -166,9 +195,17 @@ export default {
         const now = new Date().toISOString();
 
         await db.prepare(`
-          INSERT INTO items (id, name, quantity, unit, notes, status, quantity_purchased, missing_reason, inventory_notes, created_by, created_at)
-          VALUES (?, ?, ?, ?, ?, 'pending', 0, '', '', ?, ?)
+          INSERT INTO items (id, name, quantity, unit, notes, status, quantity_purchased, received_quantity, missing_reason, inventory_notes, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, 'pending', 0, 0, '', '', ?, ?)
         `).bind(newId, name.trim(), Number(quantity) || 1, (unit || 'قطعة').trim(), (notes || '').trim(), createdBy, now).run();
+
+        // إنشاء إشعار لقسم المشتريات
+        const actorName = currentUser ? currentUser.name : 'المخزن';
+        const notifId = generateId();
+        await db.prepare(`
+          INSERT INTO notifications (id, title, body, target_role, created_at)
+          VALUES (?, ?, ?, 'purchasing', datetime('now'))
+        `).bind(notifId, 'نقص جديد في المخزن! 📦', `تم تسجيل نقص: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`).run().catch(() => {});
 
         const newItem = {
           id: newId,
@@ -178,6 +215,7 @@ export default {
           notes: (notes || '').trim(),
           status: 'pending',
           quantityPurchased: 0,
+          receivedQuantity: 0,
           missingReason: '',
           inventoryNotes: '',
           createdBy: currentUser ? { id: currentUser.id, name: currentUser.name } : null,
@@ -201,10 +239,24 @@ export default {
           WHERE id = ?
         `).bind(status, Number(quantityPurchased) || 0, (missingReason || '').trim(), purchasedBy, now, id).run();
 
+        // إشعار المخزن بالتحديث
+        const itemRow = await db.prepare('SELECT name FROM items WHERE id = ?').bind(id).first();
+        const itemName = itemRow ? itemRow.name : 'مادة';
+        let statusText = 'تم الشراء';
+        if (status === 'partial') statusText = `تم شراء جزء (${quantityPurchased})`;
+        if (status === 'unavailable') statusText = 'غير متوفرة حالياً';
+        const actorName = currentUser ? currentUser.name : 'المشتريات';
+
+        const notifId = generateId();
+        await db.prepare(`
+          INSERT INTO notifications (id, title, body, target_role, created_at)
+          VALUES (?, ?, ?, 'warehouse', datetime('now'))
+        `).bind(notifId, 'تحديث المشتريات 🛒', `${itemName}: ${statusText} (بواسطة ${actorName})`).run().catch(() => {});
+
         return jsonResponse({ success: true });
       }
 
-      // 7. تأكيد الجرد
+      // 7. تأكيد الجرد والاستلام
       if (path.match(/^\/api\/items\/[^\/]+\/confirm$/) && method === 'POST') {
         const id = path.split('/')[3];
         const body = await request.json();
@@ -214,9 +266,9 @@ export default {
 
         await db.prepare(`
           UPDATE items 
-          SET status = ?, inventory_notes = ?, confirmed_by = ?, completed_at = ?
+          SET status = ?, inventory_notes = ?, received_quantity = ?, confirmed_by = ?, completed_at = ?
           WHERE id = ?
-        `).bind(status || 'completed', (inventoryNotes || '').trim(), confirmedBy, now, id).run();
+        `).bind(status || 'completed', (inventoryNotes || '').trim(), Number(receivedQuantity) || 0, confirmedBy, now, id).run();
 
         return jsonResponse({ success: true });
       }
@@ -229,27 +281,71 @@ export default {
 
         await db.prepare(`
           UPDATE items 
-          SET status = 'pending', quantity_purchased = 0, missing_reason = '', inventory_notes = '', 
-              purchased_at = NULL, completed_at = NULL, created_at = ?, created_by = ?
+          SET status = 'pending', quantity_purchased = 0, received_quantity = 0, missing_reason = '', inventory_notes = '', 
+              purchased_by = NULL, purchased_at = NULL, confirmed_by = NULL, completed_at = NULL, 
+              created_at = ?, created_by = ?
           WHERE id = ?
         `).bind(now, createdBy, id).run();
+
+        const itemRow = await db.prepare('SELECT name FROM items WHERE id = ?').bind(id).first();
+        const itemName = itemRow ? itemRow.name : 'مادة';
+        const actorName = currentUser ? currentUser.name : 'المخزن';
+        const notifId = generateId();
+        await db.prepare(`
+          INSERT INTO notifications (id, title, body, target_role, created_at)
+          VALUES (?, ?, ?, 'purchasing', datetime('now'))
+        `).bind(notifId, 'إعادة طلب مادة! 🔄', `تمت إعادة طلب: ${itemName} بواسطة ${actorName}`).run().catch(() => {});
 
         return jsonResponse({ success: true });
       }
 
-      // 9. حذف مادة
+      // 9. تعديل مادة (الاسم، الكمية، الوحدة، الملاحظة)
+      if (path.match(/^\/api\/items\/[^\/]+$/) && method === 'PUT') {
+        const id = path.split('/')[3];
+        const body = await request.json();
+        const { name, quantity, unit, notes } = body;
+
+        await db.prepare(`
+          UPDATE items 
+          SET name = COALESCE(?, name),
+              quantity = COALESCE(?, quantity),
+              unit = COALESCE(?, unit),
+              notes = COALESCE(?, notes)
+          WHERE id = ?
+        `).bind(
+          name ? name.trim() : null, 
+          quantity !== undefined ? Number(quantity) : null, 
+          unit ? unit.trim() : null, 
+          notes !== undefined ? notes.trim() : null, 
+          id
+        ).run();
+
+        return jsonResponse({ success: true });
+      }
+
+      // 10. حذف مادة
       if (path.match(/^\/api\/items\/[^\/]+$/) && method === 'DELETE') {
         const id = path.split('/')[3];
         await db.prepare('DELETE FROM items WHERE id = ?').bind(id).run();
         return jsonResponse({ success: true });
       }
 
-      // 10. إشعار وصول المشتريات
+      // 11. إشعار وصول المشتريات للمخزن
       if (path === '/api/purchases/notify-warehouse' && method === 'POST') {
+        const body = await request.json().catch(() => ({}));
+        const actorName = currentUser ? currentUser.name : 'المشتريات';
+        const message = body.message || `تم شراء المواد وتجهيزها بواسطة (${actorName})، يرجى فحصها وجردها بالمخزن.`;
+        const notifId = generateId();
+
+        await db.prepare(`
+          INSERT INTO notifications (id, title, body, target_role, created_at)
+          VALUES (?, ?, ?, 'warehouse', datetime('now'))
+        `).bind(notifId, 'وصول مشتريات جديدة! 🚚', message).run();
+
         return jsonResponse({ success: true });
       }
 
-      // 11. الإحصائيات
+      // 12. الإحصائيات
       if (path === '/api/stats' && method === 'GET') {
         const { results } = await db.prepare('SELECT status FROM items').all();
         const stats = {

@@ -271,14 +271,36 @@ function switchTab(tab) {
 }
 
 // ==========================================
-// تشغيل الصوت (Web Audio API)
+// تشغيل الصوت (Web Audio API مع دعم iOS Safari والشاشات الذكية)
 // ==========================================
+let globalAudioCtx = null;
+function getAudioContext() {
+  try {
+    if (!globalAudioCtx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) globalAudioCtx = new AudioCtx();
+    }
+    if (globalAudioCtx && globalAudioCtx.state === 'suspended') {
+      globalAudioCtx.resume().catch(() => {});
+    }
+    return globalAudioCtx;
+  } catch (e) {
+    return null;
+  }
+}
+
+// تفعيل سياق الصوت بمجرد أول لمسة للمستخدم
+document.addEventListener('touchstart', () => getAudioContext(), { passive: true });
+document.addEventListener('click', () => getAudioContext(), { passive: true });
+
 function playNotificationSound(type = 'chime') {
   if (!soundEnabled) return;
   try {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});
+    }
 
     if (type === 'chime') {
       const osc1 = ctx.createOscillator();
@@ -363,14 +385,34 @@ function showToast(title, message, icon = '🔔', color = 'emerald') {
 }
 
 // ==========================================
-// جلب البيانات من الخادم
+// جلب البيانات والإشعارات السحابية
 // ==========================================
+const seenNotificationIds = new Set();
+let hasLoadedInitialNotifs = false;
+
+function handleIncomingNotifications(notifications) {
+  if (!Array.isArray(notifications) || !currentUser) return;
+  for (const n of notifications) {
+    if (!seenNotificationIds.has(n.id)) {
+      seenNotificationIds.add(n.id);
+      if (hasLoadedInitialNotifs) {
+        if (currentUser.role === n.targetRole || currentUser.role === 'admin') {
+          playNotificationSound(n.targetRole === 'warehouse' ? 'alert' : 'chime');
+          showToast(n.title, n.body, n.targetRole === 'warehouse' ? '🚚' : '📦', n.targetRole === 'warehouse' ? 'amber' : 'blue');
+        }
+      }
+    }
+  }
+  hasLoadedInitialNotifs = true;
+}
+
 async function fetchItems() {
   try {
     const res = await fetch('/api/items', { headers: authHeaders() });
     const data = await res.json();
     if (data.success) {
       itemsData = data.items || [];
+      handleIncomingNotifications(data.notifications);
       renderAll();
     }
   } catch (err) {
@@ -815,6 +857,7 @@ elements.addItemForm.addEventListener('submit', async (e) => {
       elements.itemNotes.value = '';
       elements.itemQuantity.value = 1;
       elements.itemName.focus();
+      fetchItems();
       showToast('تم الإرسال بنجاح', `تم إرسال ${name} للمشتريات فوراً`, '🚀', 'emerald');
     }
   } catch (err) {
@@ -831,6 +874,7 @@ async function markPurchasedFast(id) {
     });
     const data = await res.json();
     if (data.success) {
+      fetchItems();
       showToast('تم تسجيل الشراء', 'تم حفظ المادة كـ مشتراة بنجاح', '✅', 'emerald');
     }
   } catch (err) {
@@ -891,6 +935,7 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
     const data = await res.json();
     if (data.success) {
       elements.purchaseModal.classList.add('hidden');
+      fetchItems();
       showToast('تم التحديث', 'تم حفظ بيانات الشراء', '👍', 'blue');
     }
   } catch (err) {
@@ -912,6 +957,7 @@ async function confirmInventoryFast(id) {
     });
     const data = await res.json();
     if (data.success) {
+      fetchItems();
       showToast('اكتمل الجرد', 'تم تأكيد الاستلام ودخول المادة للمخزن', '✅', 'emerald');
     }
   } catch (err) {
@@ -947,6 +993,7 @@ elements.invModalCompleteBtn.addEventListener('click', async () => {
     const data = await res.json();
     if (data.success) {
       elements.inventoryModal.classList.add('hidden');
+      fetchItems();
       showToast('اكتمل الجرد', 'تم حفظ جرد المادة في المخزن', '📦', 'emerald');
     }
   } catch (err) {
@@ -967,6 +1014,7 @@ elements.invModalUnsuppliedBtn.addEventListener('click', async () => {
     const data = await res.json();
     if (data.success) {
       elements.inventoryModal.classList.add('hidden');
+      fetchItems();
       showToast('تم التسجيل', 'تم قيد المادة كنقص لم يجهز لمتابعته', '⚠️', 'rose');
     }
   } catch (err) {
@@ -1000,6 +1048,8 @@ async function revertToPending(id) {
       headers: authHeaders(),
       body: JSON.stringify({ status: 'pending', missingReason: '' })
     });
+    fetchItems();
+    showToast('تم التعديل', 'تمت إعادة المادة لقائمة المطلوب شراؤها', '🔄', 'blue');
   } catch (e) {
     alert('حدث خطأ');
   }
@@ -1013,6 +1063,7 @@ async function reorderItem(id) {
     });
     const data = await res.json();
     if (data.success) {
+      fetchItems();
       showToast('تمت إعادة الطلب', 'تمت إضافة المادة كطلب جديد للمشتريات', '🔄', 'emerald');
     }
   } catch (e) {
@@ -1029,6 +1080,7 @@ async function deleteItem(id) {
     });
     const data = await res.json();
     if (data.success) {
+      fetchItems();
       showToast('تم الحذف', 'تم حذف المادة بنجاح', '🗑️', 'slate');
     }
   } catch (err) {
@@ -1150,28 +1202,8 @@ function initSocket() {
       const res = await fetch('/api/items', { headers: authHeaders() });
       const data = await res.json();
       if (data.success && Array.isArray(data.items)) {
-        const newItems = data.items;
-        
-        // كشف وصول مواد ناقصة جديدة للمشتريات
-        if (previousItemsCount !== -1 && newItems.length > previousItemsCount) {
-          if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
-            playNotificationSound('chime');
-            showToast('نقص جديد في المخزن! 📦', 'تم تسجيل مواد ناقصة جديدة بانتظار الشراء', '📦', 'blue');
-          }
-        }
-
-        // كشف اكتمال شراء مواد جديدة للمخزن
-        const readyForCheck = newItems.filter(i => i.status === 'purchased' || i.status === 'partial').length;
-        if (previousPendingCheck !== -1 && readyForCheck > previousPendingCheck) {
-          if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
-            playNotificationSound('alert');
-            showToast('مشتريات جاهزة للجرد! 🚚', 'قام موظف المشتريات بشراء المواد، يرجى جردها', '🛒', 'amber');
-          }
-        }
-
-        previousItemsCount = newItems.length;
-        previousPendingCheck = readyForCheck;
-        itemsData = newItems;
+        itemsData = data.items;
+        handleIncomingNotifications(data.notifications);
         renderAll();
       }
     } catch (err) {

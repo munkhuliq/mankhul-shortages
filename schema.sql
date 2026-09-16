@@ -17,12 +17,21 @@ CREATE TABLE IF NOT EXISTS items (
   quantity_purchased REAL DEFAULT 0,
   missing_reason TEXT,
   inventory_notes TEXT,
+  received_quantity REAL DEFAULT 0,
   created_by TEXT,
   purchased_by TEXT,
   confirmed_by TEXT,
   created_at TEXT,
   purchased_at TEXT,
   completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  target_role TEXT,
+  created_at TEXT
 );
 
 INSERT OR IGNORE INTO users (id, name, username, password, role, created_at) VALUES 
