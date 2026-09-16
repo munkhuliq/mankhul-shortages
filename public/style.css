@@ -61,3 +61,72 @@ body {
 .touch-card:active {
   transform: scale(0.985);
 }
+
+/* وميض المواد الطارئة المستعجلة */
+@keyframes emergency-pulse {
+  0%, 100% {
+    border-color: #f43f5e;
+    box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.4);
+  }
+  50% {
+    border-color: #e11d48;
+    box-shadow: 0 0 0 6px rgba(244, 63, 94, 0);
+  }
+}
+
+.emergency-card {
+  animation: emergency-pulse 2s infinite;
+  border-width: 2px !important;
+}
+
+/* ==========================================
+   المظهر الداكن (Dark Mode Styles)
+   ========================================== */
+body.dark-mode {
+  background-color: #0b1120 !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-mode .bg-white {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+  border-color: #334155 !important;
+}
+
+body.dark-mode .bg-slate-50 {
+  background-color: #0f172a !important;
+  color: #cbd5e1 !important;
+  border-color: #334155 !important;
+}
+
+body.dark-mode .bg-slate-100 {
+  background-color: #1e293b !important;
+  color: #cbd5e1 !important;
+}
+
+body.dark-mode .text-slate-900,
+body.dark-mode .text-slate-800,
+body.dark-mode .text-slate-700 {
+  color: #f8fafc !important;
+}
+
+body.dark-mode .text-slate-600,
+body.dark-mode .text-slate-500 {
+  color: #94a3b8 !important;
+}
+
+body.dark-mode input,
+body.dark-mode select {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+body.dark-mode input::placeholder {
+  color: #64748b !important;
+}
+
+body.dark-mode .border-slate-200,
+body.dark-mode .border-slate-100 {
+  border-color: #334155 !important;
+}

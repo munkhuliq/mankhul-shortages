@@ -40,6 +40,8 @@ const elements = {
   tabAdminBtn: document.getElementById('tab-admin-btn'),
   mainNavBar: document.getElementById('main-nav-bar'),
 
+  themeToggleBtn: document.getElementById('theme-toggle-btn'),
+  themeIcon: document.getElementById('theme-icon'),
   soundToggleBtn: document.getElementById('sound-toggle-btn'),
   soundIcon: document.getElementById('sound-icon'),
   refreshBtn: document.getElementById('refresh-btn'),
@@ -60,6 +62,7 @@ const elements = {
   itemQuantity: document.getElementById('item-quantity'),
   itemUnit: document.getElementById('item-unit'),
   itemNotes: document.getElementById('item-notes'),
+  commonItemsList: document.getElementById('common-items-list'),
   whSubtabPending: document.getElementById('wh-subtab-pending'),
   whSubtabCheck: document.getElementById('wh-subtab-check'),
   whPendingSection: document.getElementById('wh-pending-section'),
@@ -73,6 +76,7 @@ const elements = {
   purchasingList: document.getElementById('purchasing-list'),
   purchasingSummaryText: document.getElementById('purchasing-summary-text'),
   notifyWarehouseBtn: document.getElementById('notify-warehouse-btn'),
+  whatsappShareBtn: document.getElementById('whatsapp-share-btn'),
   purCountPending: document.getElementById('pur-count-pending'),
   purCountPurchased: document.getElementById('pur-count-purchased'),
   purCountUnavailable: document.getElementById('pur-count-unavailable'),
@@ -80,10 +84,12 @@ const elements = {
   // عناصر السجل
   archiveList: document.getElementById('archive-list'),
   archiveSearch: document.getElementById('archive-search'),
+  exportExcelBtn: document.getElementById('export-excel-btn'),
   statTotal: document.getElementById('stat-total'),
   statCompleted: document.getElementById('stat-completed'),
   statPending: document.getElementById('stat-pending'),
   statMissing: document.getElementById('stat-missing'),
+  statExpenses: document.getElementById('stat-expenses'),
 
   // عناصر لوحة تحكم المدير
   addUserForm: document.getElementById('add-user-form'),
@@ -100,6 +106,7 @@ const elements = {
   modalItemInfo: document.getElementById('modal-item-info'),
   modalPartialFields: document.getElementById('modal-partial-fields'),
   modalPurchasedQty: document.getElementById('modal-purchased-qty'),
+  modalPurchasedPrice: document.getElementById('modal-purchased-price'),
   modalReasonFields: document.getElementById('modal-reason-fields'),
   modalMissingReason: document.getElementById('modal-missing-reason'),
   modalConfirmBtn: document.getElementById('modal-confirm-btn'),
@@ -445,6 +452,33 @@ function renderAll() {
   renderArchive();
 }
 
+function formatPrice(num) {
+  if (!num || Number(num) <= 0) return '';
+  return Number(num).toLocaleString('en-US') + ' د.ع';
+}
+
+function getPriorityBadge(priority) {
+  if (priority === 'emergency') {
+    return '<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center gap-1 shadow-sm animate-pulse">🚨 طارئ متوقف العمل 🔥</span>';
+  }
+  if (priority === 'urgent') {
+    return '<span class="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center gap-1 shadow-sm">⚡ مهم ومستعجل</span>';
+  }
+  return '';
+}
+
+function sortItemsByPriority(items) {
+  const score = { emergency: 3, urgent: 2, normal: 1 };
+  return [...items].sort((a, b) => {
+    if (a.status === 'pending' && b.status === 'pending') {
+      const scoreA = score[a.priority] || 1;
+      const scoreB = score[b.priority] || 1;
+      if (scoreA !== scoreB) return scoreB - scoreA;
+    }
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
+}
+
 function updateBadges() {
   const pendingForPur = itemsData.filter(i => i.status === 'pending').length;
   const readyForWhCheck = itemsData.filter(i => i.status === 'purchased' || i.status === 'partial').length;
@@ -479,11 +513,16 @@ function updateBadges() {
   elements.statCompleted.textContent = completed;
   elements.statPending.textContent = pendingForPur + readyForWhCheck;
   elements.statMissing.textContent = unavailable;
+
+  const totalExpenses = itemsData.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
+  if (elements.statExpenses) {
+    elements.statExpenses.textContent = totalExpenses > 0 ? Number(totalExpenses).toLocaleString('en-US') + ' د.ع' : '0 د.ع';
+  }
 }
 
 // 1. شاشة المخزن
 function renderWarehouse() {
-  const pendingItems = itemsData.filter(i => i.status === 'pending');
+  const pendingItems = sortItemsByPriority(itemsData.filter(i => i.status === 'pending'));
   if (pendingItems.length === 0) {
     elements.whPendingList.innerHTML = `
       <div class="text-center py-8 bg-white rounded-2xl border border-slate-200 text-slate-400">
@@ -493,10 +532,11 @@ function renderWarehouse() {
     `;
   } else {
     elements.whPendingList.innerHTML = pendingItems.map(item => `
-      <div class="touch-card bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-3">
+      <div class="touch-card bg-white p-3.5 rounded-2xl ${item.priority === 'emergency' ? 'emergency-card border-rose-500 bg-rose-50/20' : 'border border-slate-200'} shadow-sm flex items-center justify-between gap-3">
         <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-1.5">
             <h3 class="text-sm font-bold text-slate-900 truncate">${escapeHtml(item.name)}</h3>
+            ${getPriorityBadge(item.priority)}
             <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">بانتظار الشراء</span>
           </div>
           <div class="flex items-center gap-2 mt-1 text-xs text-slate-600">
@@ -532,10 +572,14 @@ function renderWarehouse() {
       <div class="touch-card bg-white p-3.5 rounded-2xl border-2 border-emerald-500/40 shadow-sm space-y-2">
         <div class="flex items-start justify-between">
           <div>
-            <h3 class="text-sm font-bold text-slate-900">${escapeHtml(item.name)}</h3>
+            <div class="flex items-center gap-1.5">
+              <h3 class="text-sm font-bold text-slate-900">${escapeHtml(item.name)}</h3>
+              ${getPriorityBadge(item.priority)}
+            </div>
             <p class="text-xs text-slate-500 mt-0.5">
               المطلوب: <span class="font-bold">${item.quantity} ${item.unit}</span> | 
               المشترى: <span class="font-bold text-emerald-600">${item.quantityPurchased || item.quantity} ${item.unit}</span>
+              ${item.price ? ` | <span class="text-purple-700 font-bold">💰 ${formatPrice(item.price)}</span>` : ''}
             </p>
             ${item.purchasedBy ? `<p class="text-[10px] text-blue-700 font-semibold mt-0.5">🛒 اشتراها: ${escapeHtml(item.purchasedBy.name)}</p>` : ''}
             ${item.missingReason ? `<p class="text-[11px] text-amber-700 bg-amber-50 p-1.5 rounded-lg mt-1">ملاحظة الشراء: ${escapeHtml(item.missingReason)}</p>` : ''}
@@ -562,13 +606,13 @@ function renderWarehouse() {
 
 // 2. شاشة المشتريات
 function renderPurchasing() {
-  let filtered = itemsData;
+  let filtered = sortItemsByPriority(itemsData);
   if (activePurFilter === 'pending') {
-    filtered = itemsData.filter(i => i.status === 'pending');
+    filtered = filtered.filter(i => i.status === 'pending');
   } else if (activePurFilter === 'purchased') {
-    filtered = itemsData.filter(i => i.status === 'purchased' || i.status === 'partial');
+    filtered = filtered.filter(i => i.status === 'purchased' || i.status === 'partial');
   } else if (activePurFilter === 'unavailable') {
-    filtered = itemsData.filter(i => i.status === 'unavailable');
+    filtered = filtered.filter(i => i.status === 'unavailable');
   }
 
   if (filtered.length === 0) {
@@ -590,14 +634,18 @@ function renderPurchasing() {
     if (item.status === 'completed') statusBadge = '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">مستلمة بالمخزن</span>';
 
     return `
-      <div class="touch-card bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-2.5">
+      <div class="touch-card bg-white p-3.5 rounded-2xl ${item.priority === 'emergency' && item.status === 'pending' ? 'emergency-card border-rose-500 bg-rose-50/20' : 'border border-slate-200'} shadow-sm space-y-2.5">
         <div class="flex items-start justify-between gap-2">
           <div class="flex-1">
-            <h3 class="text-sm font-bold text-slate-900">${escapeHtml(item.name)}</h3>
-            <div class="flex items-center gap-2 mt-1 text-xs">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <h3 class="text-sm font-bold text-slate-900">${escapeHtml(item.name)}</h3>
+              ${getPriorityBadge(item.priority)}
+            </div>
+            <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
               <span class="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
                 الكمية: ${item.quantity} ${item.unit}
               </span>
+              ${item.price ? `<span class="font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">💰 ${formatPrice(item.price)}</span>` : ''}
               ${item.notes ? `<span class="text-slate-500 truncate">📝 ${escapeHtml(item.notes)}</span>` : ''}
             </div>
             <div class="flex items-center gap-2 mt-1 text-[10px] text-slate-400">
@@ -682,11 +730,15 @@ function renderArchive() {
       <div class="bg-white p-3 rounded-2xl border border-slate-200 shadow-sm space-y-1.5 text-xs">
         <div class="flex items-start justify-between">
           <div>
-            <h4 class="font-bold text-slate-900">${escapeHtml(item.name)}</h4>
+            <div class="flex items-center gap-1.5">
+              <h4 class="font-bold text-slate-900">${escapeHtml(item.name)}</h4>
+              ${getPriorityBadge(item.priority)}
+            </div>
             <p class="text-slate-500 text-[11px] mt-0.5">
               المطلوب: <b>${item.quantity} ${item.unit}</b>
               ${item.quantityPurchased ? ` | المشترى: <b>${item.quantityPurchased}</b>` : ''}
               ${item.receivedQuantity ? ` | المستلم: <b>${item.receivedQuantity}</b>` : ''}
+              ${item.price ? ` | السعر: <b class="text-purple-700 font-bold">${formatPrice(item.price)}</b>` : ''}
             </p>
           </div>
           <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}">${statusLabel}</span>
@@ -842,6 +894,8 @@ elements.addItemForm.addEventListener('submit', async (e) => {
   const quantity = parseFloat(elements.itemQuantity.value) || 1;
   const unit = elements.itemUnit.value;
   const notes = elements.itemNotes.value.trim();
+  const priorityEl = document.querySelector('input[name="item-priority"]:checked');
+  const priority = priorityEl ? priorityEl.value : 'normal';
 
   if (!name) return;
 
@@ -849,13 +903,23 @@ elements.addItemForm.addEventListener('submit', async (e) => {
     const res = await fetch('/api/items', {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ name, quantity, unit, notes })
+      body: JSON.stringify({ name, quantity, unit, notes, priority })
     });
     const data = await res.json();
     if (data.success) {
       elements.itemName.value = '';
       elements.itemNotes.value = '';
       elements.itemQuantity.value = 1;
+      const normalRadio = document.querySelector('input[name="item-priority"][value="normal"]');
+      if (normalRadio) normalRadio.checked = true;
+
+      // إضافة المادة تلقائياً لقائمة الاقتراحات السريعة
+      if (elements.commonItemsList && ![...elements.commonItemsList.options].some(o => o.value === name)) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        elements.commonItemsList.appendChild(opt);
+      }
+
       elements.itemName.focus();
       fetchItems();
       showToast('تم الإرسال بنجاح', `تم إرسال ${name} للمشتريات فوراً`, '🚀', 'emerald');
@@ -894,15 +958,23 @@ function openPurchaseModal(id, action) {
     <p class="text-slate-500">الكمية المطلوبة: ${item.quantity} ${item.unit}</p>
   `;
 
+  if (elements.modalPurchasedPrice) {
+    elements.modalPurchasedPrice.value = item.price || '';
+  }
+
+  const priceFields = document.getElementById('modal-price-fields');
+
   if (action === 'partial') {
     elements.modalTitle.textContent = 'تسجيل شراء جزء من الكمية';
     elements.modalPartialFields.classList.remove('hidden');
     elements.modalReasonFields.classList.add('hidden');
+    if (priceFields) priceFields.classList.remove('hidden');
     elements.modalPurchasedQty.value = Math.max(1, Math.floor(item.quantity / 2));
   } else if (action === 'unavailable') {
     elements.modalTitle.textContent = 'تسجيل مادة غير متوفرة / لم تجهز';
     elements.modalPartialFields.classList.add('hidden');
     elements.modalReasonFields.classList.remove('hidden');
+    if (priceFields) priceFields.classList.add('hidden');
     elements.modalMissingReason.value = '';
   }
 
@@ -924,6 +996,13 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
   } else if (currentModalAction === 'unavailable') {
     body.status = 'unavailable';
     body.missingReason = elements.modalMissingReason.value.trim() || 'غير متوفرة بالسوق';
+  }
+
+  if (currentModalAction !== 'unavailable' && elements.modalPurchasedPrice) {
+    const p = parseFloat(elements.modalPurchasedPrice.value);
+    if (!isNaN(p) && p >= 0) {
+      body.price = p;
+    }
   }
 
   try {
@@ -1228,7 +1307,136 @@ function escapeHtml(str) {
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// ==========================================
+// مشاركة النواقص عبر WhatsApp فوراً
+// ==========================================
+if (elements.whatsappShareBtn) {
+  elements.whatsappShareBtn.addEventListener('click', () => {
+    const pending = itemsData.filter(i => i.status === 'pending');
+    if (pending.length === 0) {
+      showToast('لا توجد نواقص', 'جميع المواد المطلوبة تم شراؤها حالياً 🎉', '✨', 'blue');
+      return;
+    }
+
+    const dateStr = new Date().toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'numeric', day: 'numeric' });
+    let msg = `*📦 قائمة نقوصات منخل المطلوبة للشراء*\n📅 التاريخ: ${dateStr}\n\n`;
+
+    pending.forEach((item, index) => {
+      let priorityTag = '';
+      if (item.priority === 'emergency') priorityTag = ' 🚨 [طارئ - متوقف العمل 🔥]';
+      else if (item.priority === 'urgent') priorityTag = ' ⚡ [مهم ومستعجل]';
+
+      msg += `${index + 1}. *${item.name}* - الكمية: (${item.quantity} ${item.unit})${priorityTag}\n`;
+      if (item.notes) msg += `   📝 ملاحظة: ${item.notes}\n`;
+    });
+
+    msg += `\n📊 *المجموع:* ${pending.length} مواد مطلوبة.\n🏢 _نظام نقوصات منخل_`;
+
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
+  });
+}
+
+// ==========================================
+// تصدير السجل إلى Excel (CSV يدعم العربية 100%)
+// ==========================================
+if (elements.exportExcelBtn) {
+  elements.exportExcelBtn.addEventListener('click', () => {
+    if (itemsData.length === 0) {
+      showToast('لا توجد بيانات', 'السجل فارغ حالياً للتصدير', 'ℹ️', 'slate');
+      return;
+    }
+
+    const headers = [
+      'اسم المادة',
+      'الكمية المطلوبة',
+      'الوحدة',
+      'درجة الأهمية',
+      'الحالة',
+      'الكمية المشتراة',
+      'سعر الشراء (د.ع)',
+      'الكمية المستلمة',
+      'ملاحظات الطلب',
+      'ملاحظات الشراء',
+      'ملاحظات المخزن',
+      'تاريخ الطلب',
+      'المشتري'
+    ];
+
+    const statusMap = {
+      pending: 'بانتظار الشراء',
+      purchased: 'تم الشراء',
+      partial: 'شراء جزئي',
+      unavailable: 'غير متوفر',
+      completed: 'مكتمل ومستلم'
+    };
+
+    const priorityMap = {
+      emergency: 'طارئ متوقف العمل',
+      urgent: 'مهم ومستعجل',
+      normal: 'عادي'
+    };
+
+    const rows = itemsData.map(item => [
+      `"${(item.name || '').replace(/"/g, '""')}"`,
+      item.quantity || 1,
+      `"${item.unit || 'قطعة'}"`,
+      `"${priorityMap[item.priority] || 'عادي'}"`,
+      `"${statusMap[item.status] || item.status}"`,
+      item.quantityPurchased || 0,
+      item.price || 0,
+      item.receivedQuantity || 0,
+      `"${(item.notes || '').replace(/"/g, '""')}"`,
+      `"${(item.missingReason || '').replace(/"/g, '""')}"`,
+      `"${(item.inventoryNotes || '').replace(/"/g, '""')}"`,
+      `"${formatTime(item.createdAt)}"`,
+      `"${item.purchasedBy ? item.purchasedBy.name : ''}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `تقرير_نقوصات_منخل_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('تم التصدير بنجاح', 'تم تنزيل ملف الإكسل متوافق مع كافة الأجهزة', '📊', 'emerald');
+  });
+}
+
+// ==========================================
+// الوضع الليلي (Dark Mode)
+// ==========================================
+let isDarkMode = localStorage.getItem('mankhul_theme') === 'dark';
+function applyTheme() {
+  document.body.classList.toggle('dark-mode', isDarkMode);
+  if (elements.themeIcon) {
+    elements.themeIcon.textContent = isDarkMode ? '☀️' : '🌙';
+  }
+}
+
+if (elements.themeToggleBtn) {
+  elements.themeToggleBtn.addEventListener('click', () => {
+    isDarkMode = !isDarkMode;
+    localStorage.setItem('mankhul_theme', isDarkMode ? 'dark' : 'light');
+    applyTheme();
+    showToast(isDarkMode ? 'الوضع الليلي' : 'الوضع النهاري', isDarkMode ? 'تم تفعيل المظهر الداكن 🌙' : 'تم تفعيل المظهر الفاتح ☀️', isDarkMode ? '🌙' : '☀️', 'slate');
+  });
+}
+
+// إغلاق النوافذ بمفتاح Escape
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    elements.purchaseModal.classList.add('hidden');
+    elements.inventoryModal.classList.add('hidden');
+  }
+});
+
 // بدء التشغيل
+applyTheme();
 elements.soundIcon.textContent = soundEnabled ? '🔔' : '🔕';
 applyUserRole();
 initSocket();

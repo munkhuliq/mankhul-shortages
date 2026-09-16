@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS items (
   missing_reason TEXT,
   inventory_notes TEXT,
   received_quantity REAL DEFAULT 0,
+  priority TEXT DEFAULT 'normal',
+  price REAL DEFAULT 0,
   created_by TEXT,
   purchased_by TEXT,
   confirmed_by TEXT,

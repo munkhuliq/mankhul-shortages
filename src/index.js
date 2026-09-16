@@ -158,6 +158,8 @@ export default {
           unit: row.unit,
           notes: row.notes,
           status: row.status,
+          priority: row.priority || 'normal',
+          price: Number(row.price) || 0,
           quantityPurchased: row.quantity_purchased,
           receivedQuantity: row.received_quantity || 0,
           missingReason: row.missing_reason,
@@ -187,25 +189,36 @@ export default {
       // 5. إضافة نقص جديد
       if (path === '/api/items' && method === 'POST') {
         const body = await request.json();
-        const { name, quantity, unit, notes } = body;
+        const { name, quantity, unit, notes, priority } = body;
         if (!name || !name.trim()) return jsonResponse({ success: false, error: 'اسم المادة مطلوب' }, 400);
 
         const newId = generateId();
         const createdBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
+        const itemPriority = (priority === 'emergency' || priority === 'urgent') ? priority : 'normal';
 
         await db.prepare(`
-          INSERT INTO items (id, name, quantity, unit, notes, status, quantity_purchased, received_quantity, missing_reason, inventory_notes, created_by, created_at)
-          VALUES (?, ?, ?, ?, ?, 'pending', 0, 0, '', '', ?, ?)
-        `).bind(newId, name.trim(), Number(quantity) || 1, (unit || 'قطعة').trim(), (notes || '').trim(), createdBy, now).run();
+          INSERT INTO items (id, name, quantity, unit, notes, status, priority, price, quantity_purchased, received_quantity, missing_reason, inventory_notes, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, 'pending', ?, 0, 0, 0, '', '', ?, ?)
+        `).bind(newId, name.trim(), Number(quantity) || 1, (unit || 'قطعة').trim(), (notes || '').trim(), itemPriority, createdBy, now).run();
 
         // إنشاء إشعار لقسم المشتريات
         const actorName = currentUser ? currentUser.name : 'المخزن';
         const notifId = generateId();
+        let notifTitle = 'نقص جديد في المخزن! 📦';
+        let notifBody = `تم تسجيل نقص: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`;
+        if (itemPriority === 'emergency') {
+          notifTitle = '🚨 نقص طارئ جداً في المخزن! 🔥';
+          notifBody = `⚠️ مادة طارئة متوقف عليها العمل: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`;
+        } else if (itemPriority === 'urgent') {
+          notifTitle = '⚡ نقص مهم في المخزن!';
+          notifBody = `مادة مهمة ومستعجلة: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`;
+        }
+
         await db.prepare(`
           INSERT INTO notifications (id, title, body, target_role, created_at)
           VALUES (?, ?, ?, 'purchasing', datetime('now'))
-        `).bind(notifId, 'نقص جديد في المخزن! 📦', `تم تسجيل نقص: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`).run().catch(() => {});
+        `).bind(notifId, notifTitle, notifBody).run().catch(() => {});
 
         const newItem = {
           id: newId,
@@ -214,6 +227,8 @@ export default {
           unit: (unit || 'قطعة').trim(),
           notes: (notes || '').trim(),
           status: 'pending',
+          priority: itemPriority,
+          price: 0,
           quantityPurchased: 0,
           receivedQuantity: 0,
           missingReason: '',
@@ -229,15 +244,16 @@ export default {
       if (path.match(/^\/api\/items\/[^\/]+\/purchase$/) && method === 'POST') {
         const id = path.split('/')[3];
         const body = await request.json();
-        const { status, quantityPurchased, missingReason } = body;
+        const { status, quantityPurchased, missingReason, price } = body;
         const purchasedBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
+        const itemPrice = price !== undefined ? (Number(price) || 0) : null;
 
         await db.prepare(`
           UPDATE items 
-          SET status = ?, quantity_purchased = ?, missing_reason = ?, purchased_by = ?, purchased_at = ?
+          SET status = ?, quantity_purchased = ?, missing_reason = ?, price = COALESCE(?, price), purchased_by = ?, purchased_at = ?
           WHERE id = ?
-        `).bind(status, Number(quantityPurchased) || 0, (missingReason || '').trim(), purchasedBy, now, id).run();
+        `).bind(status, Number(quantityPurchased) || 0, (missingReason || '').trim(), itemPrice, purchasedBy, now, id).run();
 
         // إشعار المخزن بالتحديث
         const itemRow = await db.prepare('SELECT name FROM items WHERE id = ?').bind(id).first();
@@ -281,7 +297,7 @@ export default {
 
         await db.prepare(`
           UPDATE items 
-          SET status = 'pending', quantity_purchased = 0, received_quantity = 0, missing_reason = '', inventory_notes = '', 
+          SET status = 'pending', quantity_purchased = 0, received_quantity = 0, price = 0, missing_reason = '', inventory_notes = '', 
               purchased_by = NULL, purchased_at = NULL, confirmed_by = NULL, completed_at = NULL, 
               created_at = ?, created_by = ?
           WHERE id = ?
@@ -299,24 +315,28 @@ export default {
         return jsonResponse({ success: true });
       }
 
-      // 9. تعديل مادة (الاسم، الكمية، الوحدة، الملاحظة)
+      // 9. تعديل مادة (الاسم، الكمية، الوحدة، الملاحظة، الأولوية، السعر)
       if (path.match(/^\/api\/items\/[^\/]+$/) && method === 'PUT') {
         const id = path.split('/')[3];
         const body = await request.json();
-        const { name, quantity, unit, notes } = body;
+        const { name, quantity, unit, notes, priority, price } = body;
 
         await db.prepare(`
           UPDATE items 
           SET name = COALESCE(?, name),
               quantity = COALESCE(?, quantity),
               unit = COALESCE(?, unit),
-              notes = COALESCE(?, notes)
+              notes = COALESCE(?, notes),
+              priority = COALESCE(?, priority),
+              price = COALESCE(?, price)
           WHERE id = ?
         `).bind(
           name ? name.trim() : null, 
           quantity !== undefined ? Number(quantity) : null, 
           unit ? unit.trim() : null, 
           notes !== undefined ? notes.trim() : null, 
+          priority ? priority.trim() : null,
+          price !== undefined ? Number(price) : null,
           id
         ).run();
 
@@ -347,13 +367,16 @@ export default {
 
       // 12. الإحصائيات
       if (path === '/api/stats' && method === 'GET') {
-        const { results } = await db.prepare('SELECT status FROM items').all();
+        const { results } = await db.prepare('SELECT status, priority, price FROM items').all();
+        const totalExpenses = results.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
         const stats = {
           total: results.length,
           pendingCount: results.filter(r => r.status === 'pending').length,
           purchasedCount: results.filter(r => r.status === 'purchased' || r.status === 'partial').length,
           unavailableCount: results.filter(r => r.status === 'unavailable').length,
-          completedCount: results.filter(r => r.status === 'completed').length
+          completedCount: results.filter(r => r.status === 'completed').length,
+          emergencyCount: results.filter(r => r.status === 'pending' && r.priority === 'emergency').length,
+          totalExpenses
         };
         return jsonResponse({ success: true, stats });
       }
