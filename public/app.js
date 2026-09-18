@@ -126,6 +126,8 @@ const elements = {
   whCheckList: document.getElementById('wh-check-list'),
   whPendingCount: document.getElementById('wh-pending-count'),
   whCheckCount: document.getElementById('wh-check-count'),
+  insertedHistoryList: document.getElementById('inserted-history-list'),
+  insertedHistoryCount: document.getElementById('inserted-history-count'),
 
   // عناصر المشتريات
   purchasingList: document.getElementById('purchasing-list'),
@@ -360,6 +362,17 @@ function applyUserRole() {
 // التبديل بين التبويبات
 // ==========================================
 function switchTab(tab) {
+  if (!currentUser) return;
+
+  // حماية وتأمين الصلاحيات: كل موظف يرى شاشاته المصرح بها فقط
+  if (currentUser.role === 'warehouse') {
+    if (tab !== 'warehouse' && tab !== 'archive') tab = 'warehouse';
+  } else if (currentUser.role === 'purchasing') {
+    if (tab !== 'purchasing' && tab !== 'archive') tab = 'purchasing';
+  } else if (currentUser.role !== 'admin') {
+    if (tab === 'admin') tab = 'archive';
+  }
+
   currentTab = tab;
 
   // إخفاء كافة الشاشات
@@ -783,8 +796,76 @@ function updateBadges() {
   }
 }
 
+// عرض سجل وهستوري المواد المدرجة في النواقص مع إمكانية الحذف الفوري
+function renderInsertedHistory() {
+  if (!elements.insertedHistoryList) return;
+
+  const insertedItems = [...itemsData].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  if (elements.insertedHistoryCount) {
+    elements.insertedHistoryCount.textContent = insertedItems.length;
+  }
+
+  if (insertedItems.length === 0) {
+    elements.insertedHistoryList.innerHTML = `
+      <div class="text-center py-5 bg-slate-50 rounded-xl border border-dashed border-slate-200 text-slate-400">
+        <span class="text-xl block mb-1">📝</span>
+        <p class="text-[11px] font-semibold">لا توجد مواد مدرجة حالياً في الهستوري</p>
+        <p class="text-[10px] text-slate-400 mt-0.5">اكتب النقص من النموذج أعلاه واضغط إرسال ليظهر هنا فوراً</p>
+      </div>
+    `;
+    return;
+  }
+
+  elements.insertedHistoryList.innerHTML = insertedItems.map(item => {
+    let statusBadge = '';
+    if (item.status === 'pending') {
+      statusBadge = '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-800">بانتظار الشراء</span>';
+    } else if (item.status === 'purchased') {
+      statusBadge = '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 text-blue-800">تم الشراء</span>';
+    } else if (item.status === 'partial') {
+      statusBadge = `<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 text-indigo-800">شراء جزء (${item.quantityPurchased})</span>`;
+    } else if (item.status === 'unavailable') {
+      statusBadge = '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-800">غير متوفر</span>';
+    } else if (item.status === 'completed') {
+      statusBadge = '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">مكتمل بالمخزن</span>';
+    }
+
+    return `
+      <div class="bg-slate-50 hover:bg-slate-100/80 p-2.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-2 transition-all">
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <h4 class="font-black text-xs text-slate-900 truncate">${escapeHtml(item.name)}</h4>
+            <span class="font-bold text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+              ${item.quantity} ${item.unit}
+            </span>
+            ${getPriorityBadge(item.priority)}
+            ${statusBadge}
+          </div>
+          <div class="flex items-center gap-2 text-[10px] text-slate-400 mt-1">
+            <span>🕒 ${formatTime(item.createdAt)}</span>
+            ${item.createdBy ? `<span class="text-slate-600 bg-white px-1.5 py-0.2 rounded border border-slate-100">بواسطة: ${escapeHtml(item.createdBy.name)}</span>` : ''}
+            ${item.notes ? `<span class="text-slate-500 truncate max-w-[120px]">📝 ${escapeHtml(item.notes)}</span>` : ''}
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1 shrink-0">
+          <button onclick="openEditModal('${item.id}')" class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-white rounded-lg transition-colors" title="تعديل المادة">
+            ✏️
+          </button>
+          <button onclick="deleteItem('${item.id}')" class="p-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold rounded-lg text-[10px] flex items-center gap-1 transition-all active:scale-95 shadow-xs" title="حذف المادة">
+            <span>🗑️</span>
+            <span>حذف</span>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 // 1. شاشة المخزن
 function renderWarehouse() {
+  renderInsertedHistory();
   const pendingItems = sortItemsByPriority(itemsData.filter(i => i.status === 'pending'));
   if (pendingItems.length === 0) {
     elements.whPendingList.innerHTML = `
@@ -1051,8 +1132,8 @@ function renderArchive() {
                 ✏️
               </button>
             ` : ''}
-            ${currentUser && currentUser.role === 'admin' ? `
-              <button onclick="deleteItem('${item.id}')" class="text-rose-400 hover:text-rose-600">
+            ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'warehouse') ? `
+              <button onclick="deleteItem('${item.id}')" class="text-rose-400 hover:text-rose-600 font-bold" title="حذف المادة">
                 حذف 🗑️
               </button>
             ` : ''}
