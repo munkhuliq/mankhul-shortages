@@ -1,12 +1,13 @@
 // Service Worker for Mankhul Shortages System
-const CACHE_NAME = 'mankhul-pwa-v1';
+const CACHE_NAME = 'mankhul-pwa-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/manifest.json',
-  '/icon.svg'
+  '/icon.svg',
+  '/logo.jpg'
 ];
 
 self.addEventListener('install', (event) => {

@@ -1806,7 +1806,7 @@ if (elements.whatsappShareBtn) {
     }
 
     const dateStr = new Date().toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'numeric', day: 'numeric' });
-    let msg = `*📦 قائمة نقوصات منخل المطلوبة للشراء*\n📅 التاريخ: ${dateStr}\n\n`;
+    let msg = `*☕ قائمة نقوصات مقهى منخل المطلوبة للشراء*\n📅 التاريخ: ${dateStr}\n\n`;
 
     pending.forEach((item, index) => {
       let priorityTag = '';
@@ -1817,7 +1817,7 @@ if (elements.whatsappShareBtn) {
       if (item.notes) msg += `   📝 ملاحظة: ${item.notes}\n`;
     });
 
-    msg += `\n📊 *المجموع:* ${pending.length} مواد مطلوبة.\n🏢 _نظام نقوصات منخل_`;
+    msg += `\n📊 *المجموع:* ${pending.length} مواد مطلوبة.\n☕ _مقهى منخل - إدارة المشتريات والمخزن_`;
 
     const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank');
@@ -2334,7 +2334,7 @@ if (elements.exportExcelBtn) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `تقرير_نقوصات_منخل_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `تقرير_نقوصات_مقهى_منخل_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

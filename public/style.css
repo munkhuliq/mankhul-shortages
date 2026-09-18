@@ -246,6 +246,16 @@ body.dark-mode select option {
     page-break-inside: avoid;
   }
 
+  #printable-voucher-content img {
+    display: inline-block !important;
+    max-height: 80px !important;
+    max-width: 80px !important;
+    border-radius: 8px !important;
+    object-fit: cover !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
   #archive-view {
     display: block !important;
   }
