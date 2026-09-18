@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS items (
   received_quantity REAL DEFAULT 0,
   priority TEXT DEFAULT 'normal',
   price REAL DEFAULT 0,
+  supplier TEXT,
   created_by TEXT,
   purchased_by TEXT,
   confirmed_by TEXT,

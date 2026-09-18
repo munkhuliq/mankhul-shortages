@@ -7,7 +7,11 @@
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="apple-touch-icon" href="/icon.svg">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#059669">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="نقوصات منخل">
   <!-- Google Fonts: Cairo -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://gstatic.com" crossorigin>
@@ -147,6 +151,27 @@
       </nav>
     </div>
   </header>
+
+  <!-- شريط تثبيت تطبيق PWA الذكي للهواتف -->
+  <div id="pwa-install-banner" class="hidden max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-4 pt-2">
+    <div class="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-3 rounded-2xl shadow-md flex items-center justify-between text-xs transition-all border border-emerald-500/50">
+      <div class="flex items-center gap-2.5">
+        <span class="text-2xl">📲</span>
+        <div>
+          <p class="font-bold text-xs">تثبيت تطبيق نقوصات منخل</p>
+          <p class="text-[10px] text-emerald-100">ثبت التطبيق على شاشة هاتفك الرئيسية للفتح السريع</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="pwa-install-btn" class="px-3.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 font-black rounded-xl text-xs shadow-sm active:scale-95 transition-all">
+          تثبيت ⬇️
+        </button>
+        <button id="pwa-dismiss-btn" class="text-white/70 hover:text-white text-sm font-bold px-1" title="إغلاق">
+          ✕
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- المحتوى الرئيسي المتجاوب لكافة الشاشات (Mobile First) -->
   <main class="max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-4 py-3">
@@ -345,18 +370,116 @@
         </div>
       </div>
 
-      <!-- مربع البحث السريع وزر التصدير والطباعة -->
-      <div class="flex gap-2 items-center">
-        <input type="text" id="archive-search" placeholder="🔍 بحث في السجل (بالاسم، الملاحظات)..." 
-               class="flex-1 text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm">
-        <button id="export-excel-btn" class="px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow whitespace-nowrap active:scale-95 transition-all">
-          <span>📊</span>
-          <span>إكسل</span>
-        </button>
-        <button onclick="window.print()" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow whitespace-nowrap active:scale-95 transition-all">
-          <span>🖨️</span>
-          <span>طباعة</span>
-        </button>
+      <!-- شريط البحث السريع وأزرار التصفية والتحليلات والسند -->
+      <div class="space-y-2">
+        <div class="flex gap-1.5 items-center flex-wrap">
+          <input type="text" id="archive-search" placeholder="🔍 بحث سريع في السجل..." 
+                 class="flex-1 min-w-[160px] text-xs px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm">
+          
+          <button id="toggle-filters-btn" class="px-3 py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm whitespace-nowrap active:scale-95 transition-all">
+            <span>🎯</span>
+            <span>فلاتر</span>
+            <span id="filters-badge" class="hidden w-2 h-2 rounded-full bg-emerald-600"></span>
+          </button>
+
+          <button id="toggle-analytics-btn" class="px-3 py-2.5 bg-white hover:bg-slate-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm whitespace-nowrap active:scale-95 transition-all">
+            <span>📈</span>
+            <span>التحليلات</span>
+          </button>
+
+          <button id="open-voucher-btn" class="px-3 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm whitespace-nowrap active:scale-95 transition-all">
+            <span>🧾</span>
+            <span>سند استلام</span>
+          </button>
+
+          <button id="export-excel-btn" class="px-3 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow whitespace-nowrap active:scale-95 transition-all">
+            <span>📊</span>
+            <span>إكسل</span>
+          </button>
+
+          <button onclick="window.print()" class="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow whitespace-nowrap active:scale-95 transition-all">
+            <span>🖨️</span>
+          </button>
+        </div>
+
+        <!-- لوحة الفلاتر المتقدمة (قابلة للطي) -->
+        <div id="advanced-filters-panel" class="hidden bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm space-y-3 transition-all">
+          <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+            <h4 class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+              <span>🎯</span>
+              <span>تصفية مخصصة للسجلات</span>
+            </h4>
+            <button id="reset-filters-btn" class="text-[11px] text-rose-600 hover:underline font-bold">
+              إعادة ضبط الفلاتر ↺
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 mb-1">الحالة</label>
+              <select id="filter-status" class="w-full p-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
+                <option value="all">كافة الحالات</option>
+                <option value="completed">مكتمل ومستلم بالمخزن ✅</option>
+                <option value="purchased">تم الشراء بانتظار الجرد 🛒</option>
+                <option value="partial">تم شراء جزء ⚠️</option>
+                <option value="unavailable">غير متوفرة / لم تجهز ❌</option>
+                <option value="pending">بانتظار الشراء ⏳</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 mb-1">درجة الأهمية</label>
+              <select id="filter-priority" class="w-full p-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
+                <option value="all">كافة الأولويات</option>
+                <option value="emergency">🚨 طارئ متوقف العمل</option>
+                <option value="urgent">⚡ مهم ومستعجل</option>
+                <option value="normal">🟢 عادي</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 mb-1">من تاريخ</label>
+              <input type="date" id="filter-date-from" class="w-full p-1.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 mb-1">إلى تاريخ</label>
+              <input type="date" id="filter-date-to" class="w-full p-1.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+            <span>النتائج المطابقة: <b id="filter-matched-count" class="text-emerald-700 font-bold">0</b> مادة</span>
+            <span id="filter-active-indicator" class="hidden text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">فلاتر مخصصة مفعلة ⚡</span>
+          </div>
+        </div>
+
+        <!-- لوحة التحليلات والرسوم البيانية (قابلة للطي) -->
+        <div id="analytics-panel" class="hidden space-y-3 transition-all">
+          <!-- كرت المواد الأكثر نقصاً -->
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+              <h4 class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <span>🔥</span>
+                <span>المواد الأكثر طلباً ونقصاً في المخزن</span>
+              </h4>
+              <span class="text-[10px] text-slate-400 font-semibold">لتحديد كميات الأمان</span>
+            </div>
+            <div id="top-shortages-chart" class="space-y-2"></div>
+          </div>
+
+          <!-- كرت رسم المصروفات البياني -->
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+              <h4 class="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                <span>💰</span>
+                <span>توزيع المصروفات المالية (IQD)</span>
+              </h4>
+              <span id="analytics-expenses-total" class="text-xs font-black text-purple-700">0 د.ع</span>
+            </div>
+            <div id="expenses-svg-chart" class="w-full overflow-x-auto py-1"></div>
+          </div>
+        </div>
       </div>
 
       <!-- قائمة السجل -->
@@ -438,13 +561,25 @@
                class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 text-center font-bold">
       </div>
 
-      <div id="modal-price-fields" class="space-y-1">
+      <div id="modal-price-fields" class="space-y-1.5">
         <label class="block text-xs font-semibold text-slate-600">سعر الشراء الإجمالي (د.ع - اختياري)</label>
         <div class="relative">
           <input type="number" id="modal-purchased-price" min="0" step="250" placeholder="مثال: 25000" 
                  class="w-full text-sm px-3 py-2.5 pl-12 rounded-xl border border-slate-300 text-center font-bold">
           <span class="absolute left-3 top-2.5 text-xs text-slate-400 font-bold">د.ع</span>
         </div>
+        <!-- تلميح ذكاء الأسعار التلقائي -->
+        <div id="modal-price-history-tip" class="hidden text-[11px] p-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 cursor-pointer flex items-center justify-between transition-colors shadow-sm">
+          <span>💡 آخر سعر مسجل: <strong id="modal-last-price-val" class="text-xs font-black">0</strong> د.ع</span>
+          <span class="text-[10px] bg-purple-200 text-purple-900 px-2 py-0.5 rounded-md font-bold">اعتماد السعر ↩</span>
+        </div>
+      </div>
+
+      <!-- حقل المحل والمورد -->
+      <div id="modal-supplier-fields" class="space-y-1">
+        <label class="block text-xs font-semibold text-slate-600">اسم المحل / المورد (اختياري)</label>
+        <input type="text" id="modal-purchased-supplier" list="common-suppliers-list" placeholder="مثال: جملة السنك، محل النور..." 
+               class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white transition-all">
       </div>
 
       <div id="modal-reason-fields" class="space-y-2 hidden">
@@ -556,6 +691,19 @@
           </div>
         </div>
 
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">السعر المسجل (د.ع)</label>
+            <input type="number" id="edit-item-price" min="0" step="250" placeholder="0" 
+                   class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-center font-bold">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">المحل / المورد</label>
+            <input type="text" id="edit-item-supplier" list="common-suppliers-list" placeholder="اسم المورد..." 
+                   class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white">
+          </div>
+        </div>
+
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">الملاحظات</label>
           <input type="text" id="edit-item-notes" placeholder="ملاحظات..." 
@@ -574,6 +722,112 @@
       </form>
     </div>
   </div>
+
+  <!-- ==================== Modal: تتبع ومسار حركة المادة (Audit Trail) ==================== -->
+  <div id="item-timeline-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-2xl w-full max-w-sm sm:max-w-md p-4 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b pb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">🕒</span>
+          <h3 class="text-sm font-bold text-slate-800">سجل وحركة المادة</h3>
+        </div>
+        <button id="timeline-modal-close-btn" class="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center">✕</button>
+      </div>
+
+      <div id="timeline-item-header" class="bg-slate-50 p-3 rounded-xl border border-slate-200"></div>
+      
+      <!-- عناصر الشريط الزمني -->
+      <div id="timeline-steps-container" class="space-y-4 relative pr-4 border-r-2 border-emerald-500/30 mr-2 py-1"></div>
+
+      <button id="timeline-modal-ok-btn" class="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs">
+        إغلاق
+      </button>
+    </div>
+  </div>
+
+  <!-- ==================== Modal: سند استلام ومطابقة مشتريات رسمي للطباعة ==================== -->
+  <div id="voucher-print-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 hidden">
+    <div class="bg-white rounded-2xl w-full max-w-3xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[95vh] overflow-y-auto">
+      <!-- أزرار الإجراءات (تختفي عند الطباعة) -->
+      <div class="flex items-center justify-between border-b pb-2 no-print">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+          <span>🧾</span>
+          <span>معاينة وطباعة سند استلام المشتريات</span>
+        </h3>
+        <div class="flex items-center gap-2">
+          <button onclick="window.print()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow active:scale-95 transition-all">
+            <span>🖨️ طباعة السند</span>
+          </button>
+          <button id="voucher-close-btn" class="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center">✕</button>
+        </div>
+      </div>
+
+      <!-- محتوى السند الرسمي المعد للطباعة -->
+      <div id="printable-voucher-content" class="p-4 sm:p-6 border-2 border-slate-800 rounded-xl space-y-4 bg-white text-slate-900">
+        <!-- ترويسة السند -->
+        <div class="text-center border-b-2 border-slate-800 pb-3">
+          <h2 class="text-xl font-black tracking-wide">شركة منخل</h2>
+          <p class="text-xs text-slate-600 font-bold mt-0.5">سند استلام ومطابقة مشتريات ومصروفات المواد</p>
+          <div class="flex justify-between items-center text-[11px] text-slate-600 mt-3 px-2">
+            <span>رقم السند: <b id="voucher-number" class="text-slate-900 font-mono font-black">MN-0000</b></span>
+            <span>التاريخ: <b id="voucher-date" class="text-slate-900 font-mono"></b></span>
+            <span>الحالة: <b class="text-emerald-700">مشتريات مسجلة ومعتمدة</b></span>
+          </div>
+        </div>
+
+        <!-- جدول تفاصيل المواد المستلمة -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-right border-collapse border border-slate-300">
+            <thead>
+              <tr class="bg-slate-100 font-bold border-b border-slate-300 text-slate-800">
+                <th class="p-2 border border-slate-300 w-8 text-center">ت</th>
+                <th class="p-2 border border-slate-300">اسم المادة</th>
+                <th class="p-2 border border-slate-300 text-center">الكمية</th>
+                <th class="p-2 border border-slate-300">المحل / المورد</th>
+                <th class="p-2 border border-slate-300 text-center">السعر الإجمالي (د.ع)</th>
+                <th class="p-2 border border-slate-300">المشتري</th>
+              </tr>
+            </thead>
+            <tbody id="voucher-items-tbody"></tbody>
+            <tfoot>
+              <tr class="font-bold bg-slate-50 border-t-2 border-slate-800">
+                <td colspan="2" class="p-2 border border-slate-300 text-center font-black">الإجمالي الكلي</td>
+                <td id="voucher-total-qty" class="p-2 border border-slate-300 text-center font-bold">0</td>
+                <td class="p-2 border border-slate-300"></td>
+                <td id="voucher-total-amount" class="p-2 border border-slate-300 text-center text-emerald-800 font-black text-sm">0 د.ع</td>
+                <td class="p-2 border border-slate-300"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- تفقيط المبلغ رقماً وكتابة -->
+        <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs">
+          <span class="font-bold">المبلغ الإجمالي كتابة: </span>
+          <span id="voucher-amount-words" class="font-semibold text-slate-700"></span>
+        </div>
+
+        <!-- تواقيع الاستلام والتدقيق -->
+        <div class="grid grid-cols-3 gap-3 pt-6 text-center text-xs font-bold text-slate-800">
+          <div class="space-y-8">
+            <p>توقيع مسؤول المشتريات</p>
+            <div class="border-b border-dotted border-slate-500 w-32 mx-auto"></div>
+          </div>
+          <div class="space-y-8">
+            <p>توقيع أمين المخزن (المستلم)</p>
+            <div class="border-b border-dotted border-slate-500 w-32 mx-auto"></div>
+          </div>
+          <div class="space-y-8">
+            <p>توقيع الإدارة / التدقيق المالي</p>
+            <div class="border-b border-dotted border-slate-500 w-32 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- قوائم الاقتراحات السريعة للموردين والمحلات -->
+  <datalist id="common-suppliers-list"></datalist>
 
   <script src="app.js"></script>
 </body>

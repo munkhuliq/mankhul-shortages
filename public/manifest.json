@@ -1,16 +1,22 @@
 {
   "name": "نظام نقوصات منخل",
   "short_name": "نقوصات منخل",
-  "description": "متابعة النقوصات والمشتريات بين المخزن والمشتريات",
+  "description": "نظام إدارة ومتابعة نقوصات ومشتريات منخل",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
+  "dir": "rtl",
+  "lang": "ar",
   "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "theme_color": "#059669",
+  "categories": ["business", "productivity", "utilities"],
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "192x192 512x512",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
     }
   ]
 }

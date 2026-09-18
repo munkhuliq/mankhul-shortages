@@ -160,6 +160,7 @@ export default {
           status: row.status,
           priority: row.priority || 'normal',
           price: Number(row.price) || 0,
+          supplier: row.supplier || '',
           quantityPurchased: row.quantity_purchased,
           receivedQuantity: row.received_quantity || 0,
           missingReason: row.missing_reason,
@@ -249,17 +250,18 @@ export default {
       if (path.match(/^\/api\/items\/[^\/]+\/purchase$/) && method === 'POST') {
         const id = decodeURIComponent(path.split('/')[3]);
         const body = await request.json().catch(() => ({}));
-        const { status, quantityPurchased, missingReason, price } = body;
+        const { status, quantityPurchased, missingReason, price, supplier } = body;
         const purchasedBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
         const itemPrice = (price !== undefined && price !== null && price !== '') ? Math.max(0, Math.round(Number(price))) : null;
         const cleanQtyPurchased = Math.max(0, Number(quantityPurchased) || 0);
+        const cleanSupplier = (supplier !== undefined && supplier !== null) ? String(supplier).trim() : null;
 
         await db.prepare(`
           UPDATE items 
-          SET status = ?, quantity_purchased = ?, missing_reason = ?, price = COALESCE(?, price), purchased_by = ?, purchased_at = ?
+          SET status = ?, quantity_purchased = ?, missing_reason = ?, price = COALESCE(?, price), supplier = COALESCE(?, supplier), purchased_by = ?, purchased_at = ?
           WHERE id = ?
-        `).bind(status, cleanQtyPurchased, (missingReason ? String(missingReason).trim() : ''), itemPrice, purchasedBy, now, id).run();
+        `).bind(status, cleanQtyPurchased, (missingReason ? String(missingReason).trim() : ''), itemPrice, cleanSupplier, purchasedBy, now, id).run();
 
         // إشعار المخزن بالتحديث
         const itemRow = await db.prepare('SELECT name FROM items WHERE id = ?').bind(id).first();
@@ -321,11 +323,11 @@ export default {
         return jsonResponse({ success: true });
       }
 
-      // 9. تعديل مادة (الاسم، الكمية، الوحدة، الملاحظة، الأولوية، السعر)
+      // 9. تعديل مادة (الاسم، الكمية، الوحدة، الملاحظة، الأولوية، السعر، المورد)
       if (path.match(/^\/api\/items\/[^\/]+$/) && method === 'PUT') {
         const id = decodeURIComponent(path.split('/')[3]);
         const body = await request.json().catch(() => ({}));
-        const { name, quantity, unit, notes, priority, price } = body;
+        const { name, quantity, unit, notes, priority, price, supplier } = body;
 
         const cleanName = (name !== undefined && name !== null) ? String(name).trim() : null;
         const cleanQty = (quantity !== undefined && quantity !== null && quantity !== '') ? Math.max(0.01, Number(quantity) || 1) : null;
@@ -333,6 +335,7 @@ export default {
         const cleanNotes = (notes !== undefined && notes !== null) ? String(notes).trim() : null;
         const cleanPriority = (priority === 'emergency' || priority === 'urgent' || priority === 'normal') ? priority : null;
         const cleanPrice = (price !== undefined && price !== null && price !== '') ? Math.max(0, Math.round(Number(price))) : null;
+        const cleanSupplier = (supplier !== undefined && supplier !== null) ? String(supplier).trim() : null;
 
         await db.prepare(`
           UPDATE items 
@@ -341,7 +344,8 @@ export default {
               unit = COALESCE(?, unit),
               notes = COALESCE(?, notes),
               priority = COALESCE(?, priority),
-              price = COALESCE(?, price)
+              price = COALESCE(?, price),
+              supplier = COALESCE(?, supplier)
           WHERE id = ?
         `).bind(
           cleanName, 
@@ -350,6 +354,7 @@ export default {
           cleanNotes, 
           cleanPriority,
           cleanPrice,
+          cleanSupplier,
           id
         ).run();
 
