@@ -130,3 +130,85 @@ body.dark-mode .border-slate-200,
 body.dark-mode .border-slate-100 {
   border-color: #334155 !important;
 }
+
+body.dark-mode .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  color: #fde68a !important;
+  border-color: rgba(245, 158, 11, 0.3) !important;
+}
+
+body.dark-mode .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.12) !important;
+  color: #93c5fd !important;
+  border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+body.dark-mode .bg-emerald-50 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+body.dark-mode .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.12) !important;
+  color: #d8b4fe !important;
+  border-color: rgba(168, 85, 247, 0.3) !important;
+}
+
+body.dark-mode .bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.12) !important;
+  color: #fda4af !important;
+  border-color: rgba(244, 63, 94, 0.3) !important;
+}
+
+body.dark-mode select option {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+/* منع تقريب الشاشة التلقائي المزعج على هواتف آيفون */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ==========================================
+   تنسيقات الطباعة (Print Styles)
+   ========================================== */
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    padding: 0 !important;
+  }
+
+  header, 
+  #toast-container,
+  #main-nav-bar,
+  #theme-toggle-btn,
+  #sound-toggle-btn,
+  #refresh-btn,
+  #logout-btn,
+  #warehouse-view,
+  #purchasing-view,
+  #admin-view,
+  #archive-search,
+  #export-excel-btn,
+  button[onclick*="window.print"],
+  .pur-filter-btn,
+  button {
+    display: none !important;
+  }
+
+  #archive-view {
+    display: block !important;
+  }
+
+  .touch-card,
+  #archive-view > div {
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+}

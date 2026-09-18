@@ -19,6 +19,60 @@ let usersData = [];
 let soundEnabled = localStorage.getItem('mankhul_sound') !== 'false';
 let socket = null;
 
+// ==========================================
+// دوال معالجة وتدقيق الأرقام والحسابات الرياضية بدقة
+// ==========================================
+function normalizeArabicNumerals(input) {
+  if (input === null || input === undefined) return '';
+  return String(input)
+    .replace(/[٠۰]/g, '0')
+    .replace(/[١۱]/g, '1')
+    .replace(/[٢۲]/g, '2')
+    .replace(/[٣۳]/g, '3')
+    .replace(/[٤۴]/g, '4')
+    .replace(/[٥۵]/g, '5')
+    .replace(/[٦۶]/g, '6')
+    .replace(/[٧۷]/g, '7')
+    .replace(/[٨۸]/g, '8')
+    .replace(/[٩۹]/g, '9')
+    .replace(/[،٫]/g, '.')
+    .replace(/\s+/g, '');
+}
+
+function parseCleanNumber(val, defaultVal = 0, isPrice = false) {
+  if (val === null || val === undefined || val === '') return defaultVal;
+  const normalized = normalizeArabicNumerals(val);
+  const parsed = parseFloat(normalized);
+  if (isNaN(parsed) || !isFinite(parsed)) return defaultVal;
+  if (isPrice) {
+    return Math.max(0, Math.round(parsed));
+  }
+  // للكميات: تقريب لمنزلتين عشريتين كحد أقصى لمنع أخطاء الفاصلة العائمة
+  return Math.max(0, Math.round(parsed * 100) / 100);
+}
+
+function roundNumber(num, decimals = 2) {
+  const p = Math.pow(10, decimals);
+  return Math.round((Number(num) || 0) * p) / p;
+}
+
+// دالة منع التكرار وتعطيل الأزرار أثناء التحميل (Debouncing)
+function setButtonLoading(btn, isLoading, originalHtml, loadingText = 'جاري المعالجة...') {
+  if (!btn) return;
+  if (isLoading) {
+    btn.disabled = true;
+    btn.dataset.originalContent = originalHtml || btn.innerHTML;
+    btn.innerHTML = `<span class="inline-block animate-spin">⏳</span> <span>${loadingText}</span>`;
+    btn.classList.add('opacity-70', 'cursor-not-allowed');
+  } else {
+    btn.disabled = false;
+    if (btn.dataset.originalContent) {
+      btn.innerHTML = btn.dataset.originalContent;
+    }
+    btn.classList.remove('opacity-70', 'cursor-not-allowed');
+  }
+}
+
 // مرجع عناصر الواجهة
 const elements = {
   // شاشة الدخول
@@ -58,6 +112,7 @@ const elements = {
 
   // عناصر المخزن
   addItemForm: document.getElementById('add-item-form'),
+  submitItemBtn: document.getElementById('submit-item-btn'),
   itemName: document.getElementById('item-name'),
   itemQuantity: document.getElementById('item-quantity'),
   itemUnit: document.getElementById('item-unit'),
@@ -93,6 +148,7 @@ const elements = {
 
   // عناصر لوحة تحكم المدير
   addUserForm: document.getElementById('add-user-form'),
+  addUserSubmitBtn: document.getElementById('add-user-submit-btn'),
   newUserName: document.getElementById('new-user-name'),
   newUserUsername: document.getElementById('new-user-username'),
   newUserPassword: document.getElementById('new-user-password'),
@@ -121,12 +177,23 @@ const elements = {
   invModalUnsuppliedBtn: document.getElementById('inv-modal-unsupplied-btn'),
   invModalCloseBtn: document.getElementById('inv-modal-close-btn'),
 
+  editItemModal: document.getElementById('edit-item-modal'),
+  editItemForm: document.getElementById('edit-item-form'),
+  editItemName: document.getElementById('edit-item-name'),
+  editItemQuantity: document.getElementById('edit-item-quantity'),
+  editItemUnit: document.getElementById('edit-item-unit'),
+  editItemNotes: document.getElementById('edit-item-notes'),
+  editModalSaveBtn: document.getElementById('edit-modal-save-btn'),
+  editModalCancelBtn: document.getElementById('edit-modal-cancel-btn'),
+  editModalCloseBtn: document.getElementById('edit-modal-close-btn'),
+
   toastContainer: document.getElementById('toast-container')
 };
 
 // متغيرات النوافذ المؤقتة
 let currentModalAction = null;
 let currentModalItem = null;
+let editingItemId = null;
 
 // ==========================================
 // دوال الطلبات مع الترويسة الأمنية للمستخدم
@@ -530,7 +597,11 @@ function updateBadges() {
   elements.statPending.textContent = pendingForPur + readyForWhCheck;
   elements.statMissing.textContent = unavailable;
 
-  const totalExpenses = itemsData.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
+  // المصاريف الفعلية: تشمل فقط المواد التي تم شراؤها أو اكتملت
+  const totalExpenses = itemsData
+    .filter(i => ['purchased', 'partial', 'completed'].includes(i.status))
+    .reduce((sum, i) => sum + parseCleanNumber(i.price, 0, true), 0);
+
   if (elements.statExpenses) {
     elements.statExpenses.textContent = totalExpenses > 0 ? Number(totalExpenses).toLocaleString('en-US') + ' د.ع' : '0 د.ع';
   }
@@ -567,9 +638,14 @@ function renderWarehouse() {
           </div>
         </div>
         ${currentUser && (currentUser.role === 'warehouse' || currentUser.role === 'admin') ? `
-          <button onclick="deleteItem('${item.id}')" class="p-2 text-slate-300 hover:text-rose-500 rounded-lg text-sm" title="حذف">
-            🗑️
-          </button>
+          <div class="flex items-center gap-1">
+            <button onclick="openEditModal('${item.id}')" class="p-2 text-slate-400 hover:text-emerald-600 rounded-lg text-sm transition-colors" title="تعديل المادة">
+              ✏️
+            </button>
+            <button onclick="deleteItem('${item.id}')" class="p-2 text-slate-300 hover:text-rose-500 rounded-lg text-sm transition-colors" title="حذف">
+              🗑️
+            </button>
+          </div>
         ` : ''}
       </div>
     `).join('');
@@ -840,6 +916,8 @@ elements.addUserForm.addEventListener('submit', async (e) => {
 
   if (!name || !username || !password) return;
 
+  setButtonLoading(elements.addUserSubmitBtn, true, elements.addUserSubmitBtn ? elements.addUserSubmitBtn.innerHTML : null, 'جاري الإنشاء...');
+
   try {
     const res = await fetch('/api/admin/users', {
       method: 'POST',
@@ -859,6 +937,8 @@ elements.addUserForm.addEventListener('submit', async (e) => {
   } catch (err) {
     console.error('Add user error:', err);
     showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لإنشاء الحساب', '⚠️', 'rose');
+  } finally {
+    setButtonLoading(elements.addUserSubmitBtn, false);
   }
 });
 
@@ -910,13 +990,15 @@ async function deleteUser(id, name) {
 elements.addItemForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = elements.itemName.value.trim();
-  const quantity = parseFloat(elements.itemQuantity.value) || 1;
+  const quantity = parseCleanNumber(elements.itemQuantity.value, 1);
   const unit = elements.itemUnit.value;
   const notes = elements.itemNotes.value.trim();
   const priorityEl = document.querySelector('input[name="item-priority"]:checked');
   const priority = priorityEl ? priorityEl.value : 'normal';
 
   if (!name) return;
+
+  setButtonLoading(elements.submitItemBtn, true, elements.submitItemBtn ? elements.submitItemBtn.innerHTML : null, 'جاري الإرسال...');
 
   try {
     const res = await fetch('/api/items', {
@@ -948,8 +1030,79 @@ elements.addItemForm.addEventListener('submit', async (e) => {
   } catch (err) {
     console.error('Add item error:', err);
     showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لإرسال المادة', '⚠️', 'rose');
+  } finally {
+    setButtonLoading(elements.submitItemBtn, false);
   }
 });
+
+// نافذة تعديل المادة
+function openEditModal(id) {
+  const item = itemsData.find(i => i.id === id);
+  if (!item) return;
+
+  editingItemId = id;
+  if (elements.editItemName) elements.editItemName.value = item.name || '';
+  if (elements.editItemQuantity) elements.editItemQuantity.value = item.quantity || 1;
+  if (elements.editItemUnit) elements.editItemUnit.value = item.unit || 'قطعة';
+  if (elements.editItemNotes) elements.editItemNotes.value = item.notes || '';
+
+  const priorityRadios = document.querySelectorAll('input[name="edit-item-priority"]');
+  priorityRadios.forEach(radio => {
+    radio.checked = radio.value === (item.priority || 'normal');
+  });
+
+  if (elements.editItemModal) elements.editItemModal.classList.remove('hidden');
+}
+
+function closeEditModal() {
+  editingItemId = null;
+  if (elements.editItemModal) elements.editItemModal.classList.add('hidden');
+}
+
+if (elements.editModalCloseBtn) elements.editModalCloseBtn.addEventListener('click', closeEditModal);
+if (elements.editModalCancelBtn) elements.editModalCancelBtn.addEventListener('click', closeEditModal);
+
+if (elements.editItemForm) {
+  elements.editItemForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!editingItemId) return;
+
+    const name = elements.editItemName.value.trim();
+    const quantity = parseCleanNumber(elements.editItemQuantity.value, 1);
+    const unit = elements.editItemUnit.value;
+    const notes = elements.editItemNotes.value.trim();
+    const priorityEl = document.querySelector('input[name="edit-item-priority"]:checked');
+    const priority = priorityEl ? priorityEl.value : 'normal';
+
+    if (!name) {
+      showToast('تنبيه', 'يرجى كتابة اسم المادة', '⚠️', 'amber');
+      return;
+    }
+
+    setButtonLoading(elements.editModalSaveBtn, true, elements.editModalSaveBtn ? elements.editModalSaveBtn.innerHTML : null, 'جاري الحفظ...');
+
+    try {
+      const res = await fetch(`/api/items/${editingItemId}`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({ name, quantity, unit, notes, priority })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.success || data.success === undefined)) {
+        closeEditModal();
+        showToast('تم التعديل', `تم تحديث بيانات المادة ${name}`, '✏️', 'emerald');
+        try { await fetchItems(); } catch (err) {}
+      } else {
+        showToast('تعذر التعديل', data.error || 'فشل تحديث المادة في الخادم', '⚠️', 'rose');
+      }
+    } catch (err) {
+      console.error('Edit item error:', err);
+      showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتحديث المادة', '⚠️', 'rose');
+    } finally {
+      setButtonLoading(elements.editModalSaveBtn, false);
+    }
+  });
+}
 
 async function markPurchasedFast(id) {
   try {
@@ -1011,7 +1164,7 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
 
   const body = {};
   if (currentModalAction === 'partial') {
-    const qty = parseFloat(elements.modalPurchasedQty.value);
+    const qty = parseCleanNumber(elements.modalPurchasedQty.value, 0);
     if (!qty || qty <= 0) {
       showToast('تنبيه', 'يرجى تحديد كمية صحيحة', '⚠️', 'amber');
       return;
@@ -1024,11 +1177,13 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
   }
 
   if (currentModalAction !== 'unavailable' && elements.modalPurchasedPrice) {
-    const p = parseFloat(elements.modalPurchasedPrice.value);
-    if (!isNaN(p) && p >= 0) {
+    const p = parseCleanNumber(elements.modalPurchasedPrice.value, -1, true);
+    if (p >= 0) {
       body.price = p;
     }
   }
+
+  setButtonLoading(elements.modalConfirmBtn, true, elements.modalConfirmBtn ? elements.modalConfirmBtn.innerHTML : null, 'جاري الحفظ...');
 
   try {
     const res = await fetch(`/api/items/${currentModalItem.id}/purchase`, {
@@ -1047,6 +1202,8 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
   } catch (err) {
     console.error('Purchase modal error:', err);
     showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم', '⚠️', 'rose');
+  } finally {
+    setButtonLoading(elements.modalConfirmBtn, false);
   }
 });
 
@@ -1091,8 +1248,10 @@ function openInventoryModal(id) {
 
 elements.invModalCompleteBtn.addEventListener('click', async () => {
   if (!currentModalItem) return;
-  const receivedQty = parseFloat(elements.invModalReceivedQty.value) || 0;
+  const receivedQty = parseCleanNumber(elements.invModalReceivedQty.value, 0);
   const notes = elements.invModalNotes.value.trim();
+
+  setButtonLoading(elements.invModalCompleteBtn, true, elements.invModalCompleteBtn ? elements.invModalCompleteBtn.innerHTML : null, 'جاري التأكيد...');
 
   try {
     const res = await fetch(`/api/items/${currentModalItem.id}/confirm`, {
@@ -1111,12 +1270,16 @@ elements.invModalCompleteBtn.addEventListener('click', async () => {
   } catch (err) {
     console.error('Inv complete error:', err);
     showToast('خطأ في الاتصال', 'تعذر حفظ الجرد بسبب مشكلة في الاتصال', '⚠️', 'rose');
+  } finally {
+    setButtonLoading(elements.invModalCompleteBtn, false);
   }
 });
 
 elements.invModalUnsuppliedBtn.addEventListener('click', async () => {
   if (!currentModalItem) return;
   const notes = elements.invModalNotes.value.trim() || 'نقص لم يتم تجهيزه بالكامل';
+
+  setButtonLoading(elements.invModalUnsuppliedBtn, true, elements.invModalUnsuppliedBtn ? elements.invModalUnsuppliedBtn.innerHTML : null, 'جاري القيد...');
 
   try {
     const res = await fetch(`/api/items/${currentModalItem.id}/confirm`, {
@@ -1135,6 +1298,8 @@ elements.invModalUnsuppliedBtn.addEventListener('click', async () => {
   } catch (err) {
     console.error('Inv unsupplied error:', err);
     showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم', '⚠️', 'rose');
+  } finally {
+    setButtonLoading(elements.invModalUnsuppliedBtn, false);
   }
 });
 
@@ -1326,9 +1491,11 @@ function initSocket() {
     }
   }
 
-  // مزامنة ذكية دورية تعمل تلقائياً على كلاودفلاير أونلاين
+  // مزامنة ذكية دورية تعمل تلقائياً على كلاودفلاير أونلاين مع قفل لمنع تداخل الطلبات
+  let isPolling = false;
   setInterval(async () => {
-    if (!currentUser) return;
+    if (!currentUser || isPolling) return;
+    isPolling = true;
     try {
       const res = await fetch('/api/items', { headers: authHeaders() });
       const data = await res.json();
@@ -1338,7 +1505,9 @@ function initSocket() {
         renderAll();
       }
     } catch (err) {
-      // الصمت في حال فقدان الاتصال اللحظي
+      // الصمت في حال انقطاع الشبكة اللحظي
+    } finally {
+      isPolling = false;
     }
   }, 3500);
 }
@@ -1346,12 +1515,28 @@ function initSocket() {
 function formatTime(isoStr) {
   if (!isoStr) return '';
   const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return '';
+
   const now = new Date();
   const diffMs = now - d;
   const diffMins = Math.floor(diffMs / 60000);
+
   if (diffMins < 1) return 'الآن';
   if (diffMins < 60) return `منذ ${diffMins} دقيقة`;
-  return d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
+
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 12) return `منذ ${diffHours} ساعة`;
+
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  const timeStr = d.toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' });
+  if (isToday) return `اليوم ${timeStr}`;
+  if (isYesterday) return `أمس ${timeStr}`;
+
+  return `${d.toLocaleDateString('ar-IQ', { year: 'numeric', month: 'numeric', day: 'numeric' })} ${timeStr}`;
 }
 
 function escapeHtml(str) {
@@ -1390,7 +1575,7 @@ if (elements.whatsappShareBtn) {
 }
 
 // ==========================================
-// تصدير السجل إلى Excel (CSV يدعم العربية 100%)
+// تصدير السجل إلى Excel (CSV يدعم العربية 100% مع صف إجمالي)
 // ==========================================
 if (elements.exportExcelBtn) {
   elements.exportExcelBtn.addEventListener('click', () => {
@@ -1431,13 +1616,13 @@ if (elements.exportExcelBtn) {
 
     const rows = itemsData.map(item => [
       `"${(item.name || '').replace(/"/g, '""')}"`,
-      item.quantity || 1,
+      parseCleanNumber(item.quantity, 1),
       `"${item.unit || 'قطعة'}"`,
       `"${priorityMap[item.priority] || 'عادي'}"`,
       `"${statusMap[item.status] || item.status}"`,
-      item.quantityPurchased || 0,
-      item.price || 0,
-      item.receivedQuantity || 0,
+      parseCleanNumber(item.quantityPurchased, 0),
+      parseCleanNumber(item.price, 0, true),
+      parseCleanNumber(item.receivedQuantity, 0),
       `"${(item.notes || '').replace(/"/g, '""')}"`,
       `"${(item.missingReason || '').replace(/"/g, '""')}"`,
       `"${(item.inventoryNotes || '').replace(/"/g, '""')}"`,
@@ -1445,7 +1630,31 @@ if (elements.exportExcelBtn) {
       `"${item.purchasedBy ? item.purchasedBy.name : ''}"`
     ]);
 
-    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    // حساب الإجماليات بدقة تامة
+    const totalQty = itemsData.reduce((sum, i) => sum + parseCleanNumber(i.quantity, 0), 0);
+    const totalPurchasedQty = itemsData.reduce((sum, i) => sum + parseCleanNumber(i.quantityPurchased, 0), 0);
+    const totalReceivedQty = itemsData.reduce((sum, i) => sum + parseCleanNumber(i.receivedQuantity, 0), 0);
+    const totalExpenses = itemsData
+      .filter(i => ['purchased', 'partial', 'completed'].includes(i.status))
+      .reduce((sum, i) => sum + parseCleanNumber(i.price, 0, true), 0);
+
+    const summaryRow = [
+      '"الإجمالي الكلي"',
+      roundNumber(totalQty),
+      '""',
+      '""',
+      `"إجمالي المواد: ${itemsData.length}"`,
+      roundNumber(totalPurchasedQty),
+      totalExpenses,
+      roundNumber(totalReceivedQty),
+      '""',
+      '""',
+      '""',
+      '""',
+      '""'
+    ];
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(',')), summaryRow.join(',')].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1455,7 +1664,7 @@ if (elements.exportExcelBtn) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('تم التصدير بنجاح', 'تم تنزيل ملف الإكسل متوافق مع كافة الأجهزة', '📊', 'emerald');
+    showToast('تم التصدير بنجاح', 'تم تنزيل ملف الإكسل متوافق مع كافة الأجهزة ومشتمل على الإجماليات', '📊', 'emerald');
   });
 }
 
@@ -1482,8 +1691,9 @@ if (elements.themeToggleBtn) {
 // إغلاق النوافذ بمفتاح Escape
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    elements.purchaseModal.classList.add('hidden');
-    elements.inventoryModal.classList.add('hidden');
+    if (elements.purchaseModal) elements.purchaseModal.classList.add('hidden');
+    if (elements.inventoryModal) elements.inventoryModal.classList.add('hidden');
+    if (elements.editItemModal) elements.editItemModal.classList.add('hidden');
   }
 });
 

@@ -188,31 +188,36 @@ export default {
 
       // 5. إضافة نقص جديد
       if (path === '/api/items' && method === 'POST') {
-        const body = await request.json();
+        const body = await request.json().catch(() => ({}));
         const { name, quantity, unit, notes, priority } = body;
-        if (!name || !name.trim()) return jsonResponse({ success: false, error: 'اسم المادة مطلوب' }, 400);
+        if (!name || !String(name).trim()) return jsonResponse({ success: false, error: 'اسم المادة مطلوب' }, 400);
+
+        const cleanName = String(name).trim();
+        const cleanQty = Math.max(0.01, Number(quantity) || 1);
+        const cleanUnit = (unit ? String(unit).trim() : 'قطعة') || 'قطعة';
+        const cleanNotes = notes ? String(notes).trim() : '';
+        const itemPriority = (priority === 'emergency' || priority === 'urgent') ? priority : 'normal';
 
         const newId = generateId();
         const createdBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
-        const itemPriority = (priority === 'emergency' || priority === 'urgent') ? priority : 'normal';
 
         await db.prepare(`
           INSERT INTO items (id, name, quantity, unit, notes, status, priority, price, quantity_purchased, received_quantity, missing_reason, inventory_notes, created_by, created_at)
           VALUES (?, ?, ?, ?, ?, 'pending', ?, 0, 0, 0, '', '', ?, ?)
-        `).bind(newId, name.trim(), Number(quantity) || 1, (unit || 'قطعة').trim(), (notes || '').trim(), itemPriority, createdBy, now).run();
+        `).bind(newId, cleanName, cleanQty, cleanUnit, cleanNotes, itemPriority, createdBy, now).run();
 
         // إنشاء إشعار لقسم المشتريات
         const actorName = currentUser ? currentUser.name : 'المخزن';
         const notifId = generateId();
         let notifTitle = 'نقص جديد في المخزن! 📦';
-        let notifBody = `تم تسجيل نقص: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`;
+        let notifBody = `تم تسجيل نقص: ${cleanName} (${cleanQty} ${cleanUnit}) بواسطة: ${actorName}`;
         if (itemPriority === 'emergency') {
           notifTitle = '🚨 نقص طارئ جداً في المخزن! 🔥';
-          notifBody = `⚠️ مادة طارئة متوقف عليها العمل: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`;
+          notifBody = `⚠️ مادة طارئة متوقف عليها العمل: ${cleanName} (${cleanQty} ${cleanUnit}) بواسطة: ${actorName}`;
         } else if (itemPriority === 'urgent') {
           notifTitle = '⚡ نقص مهم في المخزن!';
-          notifBody = `مادة مهمة ومستعجلة: ${name.trim()} (${quantity} ${unit || 'قطعة'}) بواسطة: ${actorName}`;
+          notifBody = `مادة مهمة ومستعجلة: ${cleanName} (${cleanQty} ${cleanUnit}) بواسطة: ${actorName}`;
         }
 
         await db.prepare(`
@@ -222,10 +227,10 @@ export default {
 
         const newItem = {
           id: newId,
-          name: name.trim(),
-          quantity: Number(quantity) || 1,
-          unit: (unit || 'قطعة').trim(),
-          notes: (notes || '').trim(),
+          name: cleanName,
+          quantity: cleanQty,
+          unit: cleanUnit,
+          notes: cleanNotes,
           status: 'pending',
           priority: itemPriority,
           price: 0,
@@ -242,18 +247,19 @@ export default {
 
       // 6. تحديث حالة الشراء
       if (path.match(/^\/api\/items\/[^\/]+\/purchase$/) && method === 'POST') {
-        const id = path.split('/')[3];
-        const body = await request.json();
+        const id = decodeURIComponent(path.split('/')[3]);
+        const body = await request.json().catch(() => ({}));
         const { status, quantityPurchased, missingReason, price } = body;
         const purchasedBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
-        const itemPrice = price !== undefined ? (Number(price) || 0) : null;
+        const itemPrice = (price !== undefined && price !== null && price !== '') ? Math.max(0, Math.round(Number(price))) : null;
+        const cleanQtyPurchased = Math.max(0, Number(quantityPurchased) || 0);
 
         await db.prepare(`
           UPDATE items 
           SET status = ?, quantity_purchased = ?, missing_reason = ?, price = COALESCE(?, price), purchased_by = ?, purchased_at = ?
           WHERE id = ?
-        `).bind(status, Number(quantityPurchased) || 0, (missingReason || '').trim(), itemPrice, purchasedBy, now, id).run();
+        `).bind(status, cleanQtyPurchased, (missingReason ? String(missingReason).trim() : ''), itemPrice, purchasedBy, now, id).run();
 
         // إشعار المخزن بالتحديث
         const itemRow = await db.prepare('SELECT name FROM items WHERE id = ?').bind(id).first();
@@ -321,6 +327,13 @@ export default {
         const body = await request.json().catch(() => ({}));
         const { name, quantity, unit, notes, priority, price } = body;
 
+        const cleanName = (name !== undefined && name !== null) ? String(name).trim() : null;
+        const cleanQty = (quantity !== undefined && quantity !== null && quantity !== '') ? Math.max(0.01, Number(quantity) || 1) : null;
+        const cleanUnit = (unit !== undefined && unit !== null) ? String(unit).trim() : null;
+        const cleanNotes = (notes !== undefined && notes !== null) ? String(notes).trim() : null;
+        const cleanPriority = (priority === 'emergency' || priority === 'urgent' || priority === 'normal') ? priority : null;
+        const cleanPrice = (price !== undefined && price !== null && price !== '') ? Math.max(0, Math.round(Number(price))) : null;
+
         await db.prepare(`
           UPDATE items 
           SET name = COALESCE(?, name),
@@ -331,12 +344,12 @@ export default {
               price = COALESCE(?, price)
           WHERE id = ?
         `).bind(
-          name ? name.trim() : null, 
-          quantity !== undefined ? Number(quantity) : null, 
-          unit ? unit.trim() : null, 
-          notes !== undefined ? notes.trim() : null, 
-          priority ? priority.trim() : null,
-          price !== undefined ? Number(price) : null,
+          cleanName, 
+          cleanQty, 
+          cleanUnit, 
+          cleanNotes, 
+          cleanPriority,
+          cleanPrice,
           id
         ).run();
 
@@ -368,7 +381,8 @@ export default {
       // 12. الإحصائيات
       if (path === '/api/stats' && method === 'GET') {
         const { results } = await db.prepare('SELECT status, priority, price FROM items').all();
-        const totalExpenses = results.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
+        const purchasedItems = results.filter(r => r.status === 'purchased' || r.status === 'partial' || r.status === 'completed');
+        const totalExpenses = purchasedItems.reduce((sum, r) => sum + Math.max(0, Math.round(Number(r.price) || 0)), 0);
         const stats = {
           total: results.length,
           pendingCount: results.filter(r => r.status === 'pending').length,
