@@ -236,6 +236,16 @@ const elements = {
   pwaInstallBtn: document.getElementById('pwa-install-btn'),
   pwaDismissBtn: document.getElementById('pwa-dismiss-btn'),
 
+  // نافذة تغيير رمز الموظف
+  changePasswordModal: document.getElementById('change-password-modal'),
+  changePassUserInfo: document.getElementById('change-pass-user-info'),
+  changePassUserId: document.getElementById('change-pass-user-id'),
+  changePassInput: document.getElementById('change-pass-input'),
+  changePassSubmitBtn: document.getElementById('change-pass-submit-btn'),
+  changePassCancelBtn: document.getElementById('change-pass-cancel-btn'),
+  changePassCloseBtn: document.getElementById('change-pass-close-btn'),
+  changePasswordForm: document.getElementById('change-password-form'),
+
   toastContainer: document.getElementById('toast-container')
 };
 
@@ -258,10 +268,13 @@ function authHeaders() {
 // ==========================================
 // إدارة تسجيل الدخول والخروج
 // ==========================================
-window.quickFillLogin = function(u, p) {
-  elements.loginUsername.value = u;
-  elements.loginPassword.value = p;
-  elements.loginError.classList.add('hidden');
+window.quickFillLogin = function(u) {
+  if (elements.loginUsername) elements.loginUsername.value = u;
+  if (elements.loginPassword) {
+    elements.loginPassword.value = '';
+    elements.loginPassword.focus();
+  }
+  if (elements.loginError) elements.loginError.classList.add('hidden');
 };
 
 elements.loginForm.addEventListener('submit', async (e) => {
@@ -1242,29 +1255,76 @@ elements.addUserForm.addEventListener('submit', async (e) => {
   }
 });
 
-async function changeUserPassword(id, name) {
+function openChangePasswordModal(id) {
   const user = usersData.find(u => u.id === id);
-  const displayName = name || (user ? user.name : 'الموظف');
-  const newPass = prompt(`أدخل كلمة المرور / الرمز الجديد للموظف (${displayName}):`, '1234');
-  if (!newPass || !newPass.trim()) return;
-
-  try {
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method: 'PUT',
-      headers: authHeaders(),
-      body: JSON.stringify({ password: newPass.trim() })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && (data.success || data.success === undefined)) {
-      showToast('تم التعديل', `تم تغيير كلمة مرور ${displayName} بنجاح`, '🔑', 'purple');
-    } else {
-      showToast('تعذر التعديل', data.error || 'تعذر تعديل كلمة المرور', '⚠️', 'rose');
-    }
-  } catch (e) {
-    console.error('Change password error:', e);
-    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتعديل كلمة المرور', '⚠️', 'rose');
+  if (!user) return;
+  if (elements.changePassUserId) elements.changePassUserId.value = user.id;
+  if (elements.changePassUserInfo) {
+    elements.changePassUserInfo.textContent = `${user.name} (${user.username})`;
+  }
+  if (elements.changePassInput) {
+    elements.changePassInput.value = '';
+  }
+  if (elements.changePasswordModal) {
+    elements.changePasswordModal.classList.remove('hidden');
+    setTimeout(() => {
+      if (elements.changePassInput) elements.changePassInput.focus();
+    }, 100);
   }
 }
+
+function closeChangePasswordModal() {
+  if (elements.changePasswordModal) {
+    elements.changePasswordModal.classList.add('hidden');
+  }
+  if (elements.changePassInput) {
+    elements.changePassInput.value = '';
+  }
+}
+
+if (elements.changePassCloseBtn) {
+  elements.changePassCloseBtn.addEventListener('click', closeChangePasswordModal);
+}
+if (elements.changePassCancelBtn) {
+  elements.changePassCancelBtn.addEventListener('click', closeChangePasswordModal);
+}
+
+if (elements.changePasswordForm) {
+  elements.changePasswordForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = elements.changePassUserId.value;
+    const newPass = elements.changePassInput.value.trim();
+    if (!id || !newPass) return;
+
+    const user = usersData.find(u => u.id === id);
+    const displayName = user ? user.name : 'الموظف';
+
+    setButtonLoading(elements.changePassSubmitBtn, true, elements.changePassSubmitBtn ? elements.changePassSubmitBtn.innerHTML : null, 'جاري الحفظ...');
+
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: 'PUT',
+        headers: authHeaders(),
+        body: JSON.stringify({ password: newPass })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.success || data.success === undefined)) {
+        closeChangePasswordModal();
+        showToast('تم التعديل', `تم تغيير رمز الدخول لـ ${displayName} بنجاح`, '🔑', 'purple');
+        try { await fetchAdminUsers(); } catch (e) {}
+      } else {
+        showToast('تعذر التعديل', data.error || 'تعذر تعديل رمز الدخول', '⚠️', 'rose');
+      }
+    } catch (err) {
+      console.error('Change password error:', err);
+      showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتعديل الرمز', '⚠️', 'rose');
+    } finally {
+      setButtonLoading(elements.changePassSubmitBtn, false);
+    }
+  });
+}
+
+const changeUserPassword = openChangePasswordModal;
 
 async function deleteUser(id, name) {
   const user = usersData.find(u => u.id === id);
@@ -2462,6 +2522,7 @@ window.addEventListener('keydown', (e) => {
     if (elements.editItemModal) elements.editItemModal.classList.add('hidden');
     if (elements.itemTimelineModal) elements.itemTimelineModal.classList.add('hidden');
     if (elements.voucherPrintModal) elements.voucherPrintModal.classList.add('hidden');
+    if (elements.changePasswordModal) elements.changePasswordModal.classList.add('hidden');
   }
 });
 
