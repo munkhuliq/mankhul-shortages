@@ -1,5 +1,5 @@
 // Service Worker for Mankhul Shortages System
-const CACHE_NAME = 'mankhul-pwa-v2';
+const CACHE_NAME = 'mankhul-pwa-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

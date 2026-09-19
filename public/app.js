@@ -1257,10 +1257,10 @@ elements.addUserForm.addEventListener('submit', async (e) => {
 
 function openChangePasswordModal(id) {
   const user = usersData.find(u => u.id === id);
-  if (!user) return;
-  if (elements.changePassUserId) elements.changePassUserId.value = user.id;
+  const displayName = user ? `${user.name} (${user.username})` : 'الموظف';
+  if (elements.changePassUserId) elements.changePassUserId.value = id;
   if (elements.changePassUserInfo) {
-    elements.changePassUserInfo.textContent = `${user.name} (${user.username})`;
+    elements.changePassUserInfo.textContent = displayName;
   }
   if (elements.changePassInput) {
     elements.changePassInput.value = '';
@@ -1269,7 +1269,7 @@ function openChangePasswordModal(id) {
     elements.changePasswordModal.classList.remove('hidden');
     setTimeout(() => {
       if (elements.changePassInput) elements.changePassInput.focus();
-    }, 100);
+    }, 50);
   }
 }
 
