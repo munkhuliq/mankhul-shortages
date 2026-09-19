@@ -279,13 +279,16 @@ const db = {
     return data.items || [];
   },
 
-  async addItem({ name, quantity, unit, notes, user }) {
+  async addItem({ name, quantity, unit, notes, priority, user }) {
     const newItem = {
       id: generateId(),
       name: (name || '').trim(),
       quantity: Number(quantity) || 1,
       unit: (unit || 'قطعة').trim(),
       notes: (notes || '').trim(),
+      priority: (priority === 'emergency' || priority === 'urgent') ? priority : 'normal',
+      price: 0,
+      supplier: '',
       status: 'pending',
       quantityPurchased: 0,
       missingReason: '',
@@ -312,9 +315,25 @@ const db = {
     return newItem;
   },
 
-  async updatePurchaseStatus(id, { status, quantityPurchased, missingReason, user }) {
+  async updateItem(id, { name, quantity, unit, notes, priority, price, supplier }) {
+    const data = readLocalData();
+    const item = data.items.find(i => i.id === id);
+    if (!item) return null;
+    if (name !== undefined && name !== null) item.name = String(name).trim();
+    if (quantity !== undefined && quantity !== null && quantity !== '') item.quantity = Number(quantity) || 1;
+    if (unit !== undefined && unit !== null) item.unit = String(unit).trim();
+    if (notes !== undefined && notes !== null) item.notes = String(notes).trim();
+    if (priority !== undefined && priority !== null) item.priority = priority;
+    if (price !== undefined && price !== null && price !== '') item.price = Number(price) || 0;
+    if (supplier !== undefined && supplier !== null) item.supplier = String(supplier).trim();
+    writeLocalData(data);
+    return item;
+  },
+
+  async updatePurchaseStatus(id, { status, quantityPurchased, missingReason, price, supplier, user }) {
     const purchasedBy = user ? { id: user.id, name: user.name } : null;
     const purchasedAt = new Date().toISOString();
+    const isRevert = status === 'pending';
 
     if (isCloudDB && pool) {
       const { rows } = await pool.query(`
@@ -322,7 +341,7 @@ const db = {
         SET status = $1, quantity_purchased = $2, missing_reason = $3, purchased_by = $4, purchased_at = $5
         WHERE id = $6
         RETURNING *
-      `, [status, Number(quantityPurchased) || 0, (missingReason || '').trim(), JSON.stringify(purchasedBy), purchasedAt, id]);
+      `, [status, isRevert ? 0 : (Number(quantityPurchased) || 0), (missingReason || '').trim(), isRevert ? null : JSON.stringify(purchasedBy), isRevert ? null : purchasedAt, id]);
       return rows[0] || null;
     }
 
@@ -330,10 +349,12 @@ const db = {
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
     item.status = status;
-    if (quantityPurchased !== undefined) item.quantityPurchased = Number(quantityPurchased);
-    if (missingReason !== undefined) item.missingReason = missingReason.trim();
-    item.purchasedBy = purchasedBy;
-    item.purchasedAt = purchasedAt;
+    item.quantityPurchased = isRevert ? 0 : (quantityPurchased !== undefined ? Number(quantityPurchased) : item.quantity);
+    item.missingReason = isRevert ? '' : (missingReason !== undefined ? missingReason.trim() : item.missingReason);
+    if (price !== undefined && price !== null && price !== '') item.price = Number(price);
+    if (supplier !== undefined && supplier !== null) item.supplier = String(supplier).trim();
+    item.purchasedBy = isRevert ? null : purchasedBy;
+    item.purchasedAt = isRevert ? null : purchasedAt;
     writeLocalData(data);
     return item;
   },

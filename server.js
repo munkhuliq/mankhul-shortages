@@ -162,19 +162,29 @@ app.get('/api/stats', async (req, res) => {
 // إضافة نقص جديد
 app.post('/api/items', async (req, res) => {
   try {
-    const { name, quantity, unit, notes } = req.body;
+    const { name, quantity, unit, notes, priority } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ success: false, error: 'اسم المادة مطلوب' });
     }
 
-    const item = await db.addItem({ name, quantity, unit, notes, user: req.user });
+    const item = await db.addItem({ name, quantity, unit, notes, priority, user: req.user });
     const actorName = req.user ? req.user.name : 'مسؤول المخزن';
+
+    let notifTitle = 'نقص جديد في المخزن! 📦';
+    let notifBody = `تم تسجيل نقص: ${item.name} (${item.quantity} ${item.unit}) بواسطة: ${actorName}`;
+    if (item.priority === 'emergency') {
+      notifTitle = '🚨 نقص طارئ جداً في المخزن! 🔥';
+      notifBody = `⚠️ مادة طارئة متوقف عليها العمل: ${item.name} (${item.quantity} ${item.unit}) بواسطة: ${actorName}`;
+    } else if (item.priority === 'urgent') {
+      notifTitle = '⚡ نقص مهم في المخزن!';
+      notifBody = `مادة مهمة ومستعجلة: ${item.name} (${item.quantity} ${item.unit}) بواسطة: ${actorName}`;
+    }
 
     io.emit('item:added', {
       item,
       notification: {
-        title: 'نقص جديد في المخزن! 📦',
-        body: `تم تسجيل نقص: ${item.name} (${item.quantity} ${item.unit}) بواسطة: ${actorName}`,
+        title: notifTitle,
+        body: notifBody,
         targetRole: 'purchasing'
       }
     });
@@ -189,23 +199,25 @@ app.post('/api/items', async (req, res) => {
 app.post('/api/items/:id/purchase', async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, quantityPurchased, missingReason } = req.body;
+    const { status, quantityPurchased, missingReason, price, supplier } = req.body;
 
-    const item = await db.updatePurchaseStatus(id, { status, quantityPurchased, missingReason, user: req.user });
+    const item = await db.updatePurchaseStatus(id, { status, quantityPurchased, missingReason, price, supplier, user: req.user });
     if (!item) {
       return res.status(404).json({ success: false, error: 'المادة غير موجودة' });
     }
 
+    const isRevert = status === 'pending';
     let statusText = 'تم الشراء';
-    if (status === 'partial') statusText = 'تم شراء جزء';
-    if (status === 'unavailable') statusText = 'غير متوفرة حالياً';
+    if (isRevert) statusText = 'تمت الإعادة لقائمة المطلوب شراؤها';
+    else if (status === 'partial') statusText = 'تم شراء جزء';
+    else if (status === 'unavailable') statusText = 'غير متوفرة حالياً';
 
     const actorName = req.user ? req.user.name : 'مسؤول المشتريات';
 
     io.emit('item:purchased', {
       item,
       notification: {
-        title: 'تحديث المشتريات 🛒',
+        title: isRevert ? 'تعديل حالة المادة 🔄' : 'تحديث المشتريات 🛒',
         body: `${item.name}: ${statusText} (بواسطة ${actorName})`,
         targetRole: 'warehouse'
       }
@@ -279,6 +291,21 @@ app.post('/api/items/:id/reorder', async (req, res) => {
       }
     });
 
+    res.json({ success: true, item });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// تعديل مادة
+app.put('/api/items/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const item = await db.updateItem(id, req.body);
+    if (!item) {
+      return res.status(404).json({ success: false, error: 'المادة غير موجودة' });
+    }
+    io.emit('item:updated', { item });
     res.json({ success: true, item });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

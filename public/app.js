@@ -381,23 +381,38 @@ function switchTab(tab) {
   elements.archiveView.classList.add('hidden');
   elements.adminView.classList.add('hidden');
 
-  // إعادة ضبط التنسيق
-  [elements.tabWarehouseBtn, elements.tabPurchasingBtn, elements.tabArchiveBtn, elements.tabAdminBtn].forEach(btn => {
-    btn.className = 'py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white';
-  });
+  // تحديث حالة الأزرار مع الحفاظ الصارم على إخفاء التبويبات غير المصرح بها
+  const updateTabButtonState = (btn, isActive, activeColor) => {
+    if (!btn) return;
+    const isHidden = (currentUser.role === 'warehouse' && (btn === elements.tabPurchasingBtn || btn === elements.tabAdminBtn)) ||
+                     (currentUser.role === 'purchasing' && (btn === elements.tabWarehouseBtn || btn === elements.tabAdminBtn)) ||
+                     (currentUser.role !== 'admin' && btn === elements.tabAdminBtn);
+
+    if (isHidden) {
+      btn.className = 'hidden';
+      return;
+    }
+
+    if (isActive) {
+      btn.className = `py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 ${activeColor} text-white shadow font-bold`;
+    } else {
+      btn.className = 'py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white';
+    }
+  };
+
+  updateTabButtonState(elements.tabWarehouseBtn, tab === 'warehouse', 'bg-emerald-600');
+  updateTabButtonState(elements.tabPurchasingBtn, tab === 'purchasing', 'bg-blue-600');
+  updateTabButtonState(elements.tabArchiveBtn, tab === 'archive', 'bg-slate-700');
+  updateTabButtonState(elements.tabAdminBtn, tab === 'admin', 'bg-purple-600');
 
   if (tab === 'warehouse') {
     elements.warehouseView.classList.remove('hidden');
-    elements.tabWarehouseBtn.className = 'py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 bg-emerald-600 text-white shadow font-bold';
   } else if (tab === 'purchasing') {
     elements.purchasingView.classList.remove('hidden');
-    elements.tabPurchasingBtn.className = 'py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 bg-blue-600 text-white shadow font-bold';
   } else if (tab === 'archive') {
     elements.archiveView.classList.remove('hidden');
-    elements.tabArchiveBtn.className = 'py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 bg-slate-700 text-white shadow font-bold';
   } else if (tab === 'admin') {
     elements.adminView.classList.remove('hidden');
-    elements.tabAdminBtn.className = 'py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 bg-purple-600 text-white shadow font-bold';
     fetchAdminUsers();
   }
 
@@ -701,11 +716,11 @@ function getFilteredArchiveItems() {
     // 4. النطاق الزمني
     if (filterDateFromVal) {
       const itemDate = (item.createdAt || '').slice(0, 10);
-      if (itemDate && itemDate < filterDateFromVal) return false;
+      if (!itemDate || itemDate < filterDateFromVal) return false;
     }
     if (filterDateToVal) {
       const itemDate = (item.createdAt || '').slice(0, 10);
-      if (itemDate && itemDate > filterDateToVal) return false;
+      if (!itemDate || itemDate > filterDateToVal) return false;
     }
 
     return true;
@@ -835,7 +850,7 @@ function renderInsertedHistory() {
       <div class="bg-slate-50 hover:bg-slate-100/80 p-2.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-2 transition-all">
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-1.5 flex-wrap">
-            <h4 class="font-black text-xs text-slate-900 truncate">${escapeHtml(item.name)}</h4>
+            <h4 class="font-black text-xs text-slate-900 truncate max-w-[150px] sm:max-w-xs">${escapeHtml(item.name)}</h4>
             <span class="font-bold text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
               ${item.quantity} ${item.unit}
             </span>
@@ -2145,14 +2160,14 @@ function renderAnalytics() {
             <title>${day}: ${formatPrice(val)}</title>
             <rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="#059669" />
             <text x="${x + barWidth / 2}" y="108" text-anchor="middle" font-size="8" fill="#64748b" font-weight="bold">${shortDate}</text>
-            <text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="bold">${Math.round(val / 1000)}k</text>
+            <text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="bold" class="chart-bar-label">${Math.round(val / 1000)}k</text>
           </g>
         `;
       }).join('');
 
       elements.expensesSvgChart.innerHTML = `
         <svg viewBox="0 0 ${chartWidth} ${chartHeight}" class="w-full h-auto overflow-visible">
-          <line x1="10" y1="92" x2="${chartWidth - 10}" y2="92" stroke="#e2e8f0" stroke-width="1" />
+          <line x1="10" y1="92" x2="${chartWidth - 10}" y2="92" stroke="#e2e8f0" stroke-width="1" class="chart-axis-line" />
           ${barsSvg}
         </svg>
       `;

@@ -166,6 +166,18 @@ body.dark-mode select option {
   color: #f8fafc !important;
 }
 
+body.dark-mode .border-dashed {
+  border-color: #334155 !important;
+}
+
+body.dark-mode .chart-bar-label {
+  fill: #f8fafc !important;
+}
+
+body.dark-mode .chart-axis-line {
+  stroke: #334155 !important;
+}
+
 /* منع تقريب الشاشة التلقائي المزعج على هواتف آيفون */
 @media screen and (max-width: 768px) {
   input, select, textarea {
@@ -191,11 +203,31 @@ body.dark-mode select option {
    تنسيقات الطباعة (Print Styles)
    ========================================== */
 @media print {
-  body {
+  body, body.dark-mode {
     background-color: #ffffff !important;
     color: #000000 !important;
     padding: 0 !important;
     margin: 0 !important;
+  }
+
+  body.dark-mode .bg-white,
+  body.dark-mode #printable-voucher-content,
+  body.dark-mode #printable-voucher-content * {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border-color: #000000 !important;
+  }
+
+  #printable-voucher-content table th,
+  #printable-voucher-content table td {
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+    background-color: #ffffff !important;
+  }
+
+  #printable-voucher-content table thead tr,
+  #printable-voucher-content table tfoot tr {
+    background-color: #f1f5f9 !important;
   }
 
   header, 

@@ -92,21 +92,21 @@
     <div class="max-w-md md:max-w-3xl lg:max-w-5xl mx-auto px-4 py-2.5">
       <!-- الشريط العلوي الرئيسي -->
       <div class="flex items-center justify-between mb-2">
-        <div class="flex items-center gap-2.5">
-          <img src="/logo.jpg" alt="شعار مقهى منخل" class="w-9 h-9 rounded-xl object-cover shadow border border-amber-400/40">
-          <div>
-            <h1 class="text-sm font-bold leading-tight flex items-center gap-1.5">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <img src="/logo.jpg" alt="شعار مقهى منخل" class="w-9 h-9 rounded-xl object-cover shadow border border-amber-400/40 shrink-0">
+          <div class="min-w-0">
+            <h1 class="text-sm font-bold leading-tight flex items-center gap-1.5 truncate">
               <span>مقهى منخل</span>
               <span id="user-role-badge" class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-600 text-white font-bold"></span>
             </h1>
-            <p class="text-[11px] text-slate-300 flex items-center gap-1">
+            <p class="text-[11px] text-slate-300 flex items-center gap-1 truncate">
               <span id="user-display-name">...</span>
             </p>
           </div>
         </div>
 
         <!-- أزرار الإجراءات السريعة في الهيدر -->
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center gap-1.5 shrink-0">
           <button id="theme-toggle-btn" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center" title="المظهر الداكن / الفاتح">
             <span id="theme-icon">🌙</span>
           </button>

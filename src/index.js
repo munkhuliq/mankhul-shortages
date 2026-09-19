@@ -257,25 +257,31 @@ export default {
         const cleanQtyPurchased = Math.max(0, Number(quantityPurchased) || 0);
         const cleanSupplier = (supplier !== undefined && supplier !== null) ? String(supplier).trim() : null;
 
+        const isRevert = status === 'pending';
+        const finalPurchasedBy = isRevert ? null : purchasedBy;
+        const finalPurchasedAt = isRevert ? null : now;
+        const finalQtyPurchased = isRevert ? 0 : cleanQtyPurchased;
+
         await db.prepare(`
           UPDATE items 
           SET status = ?, quantity_purchased = ?, missing_reason = ?, price = COALESCE(?, price), supplier = COALESCE(?, supplier), purchased_by = ?, purchased_at = ?
           WHERE id = ?
-        `).bind(status, cleanQtyPurchased, (missingReason ? String(missingReason).trim() : ''), itemPrice, cleanSupplier, purchasedBy, now, id).run();
+        `).bind(status, finalQtyPurchased, (missingReason ? String(missingReason).trim() : ''), itemPrice, cleanSupplier, finalPurchasedBy, finalPurchasedAt, id).run();
 
         // إشعار المخزن بالتحديث
         const itemRow = await db.prepare('SELECT name FROM items WHERE id = ?').bind(id).first();
         const itemName = itemRow ? itemRow.name : 'مادة';
         let statusText = 'تم الشراء';
-        if (status === 'partial') statusText = `تم شراء جزء (${quantityPurchased})`;
-        if (status === 'unavailable') statusText = 'غير متوفرة حالياً';
+        if (isRevert) statusText = 'تمت الإعادة لقائمة المطلوب شراؤها';
+        else if (status === 'partial') statusText = `تم شراء جزء (${quantityPurchased})`;
+        else if (status === 'unavailable') statusText = 'غير متوفرة حالياً';
         const actorName = currentUser ? currentUser.name : 'المشتريات';
 
         const notifId = generateId();
         await db.prepare(`
           INSERT INTO notifications (id, title, body, target_role, created_at)
           VALUES (?, ?, ?, 'warehouse', datetime('now'))
-        `).bind(notifId, 'تحديث المشتريات 🛒', `${itemName}: ${statusText} (بواسطة ${actorName})`).run().catch(() => {});
+        `).bind(notifId, isRevert ? 'تعديل حالة المادة 🔄' : 'تحديث المشتريات 🛒', `${itemName}: ${statusText} (بواسطة ${actorName})`).run().catch(() => {});
 
         return jsonResponse({ success: true });
       }
@@ -287,12 +293,14 @@ export default {
         const { status, inventoryNotes, receivedQuantity } = body;
         const confirmedBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
+        const finalStatus = status || 'completed';
+        const completedAt = finalStatus === 'completed' ? now : null;
 
         await db.prepare(`
           UPDATE items 
           SET status = ?, inventory_notes = ?, received_quantity = ?, confirmed_by = ?, completed_at = ?
           WHERE id = ?
-        `).bind(status || 'completed', (inventoryNotes || '').trim(), Number(receivedQuantity) || 0, confirmedBy, now, id).run();
+        `).bind(finalStatus, (inventoryNotes || '').trim(), Number(receivedQuantity) || 0, confirmedBy, completedAt, id).run();
 
         return jsonResponse({ success: true });
       }
