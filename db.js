@@ -76,6 +76,10 @@ async function initCloudDB() {
         quantity_purchased NUMERIC DEFAULT 0,
         missing_reason TEXT,
         inventory_notes TEXT,
+        received_quantity NUMERIC DEFAULT 0,
+        priority VARCHAR(50) DEFAULT 'normal',
+        price NUMERIC DEFAULT 0,
+        supplier VARCHAR(255),
         created_by JSONB,
         purchased_by JSONB,
         confirmed_by JSONB,
@@ -83,6 +87,11 @@ async function initCloudDB() {
         purchased_at TIMESTAMP WITH TIME ZONE,
         completed_at TIMESTAMP WITH TIME ZONE
       );
+
+      ALTER TABLE items ADD COLUMN IF NOT EXISTS received_quantity NUMERIC DEFAULT 0;
+      ALTER TABLE items ADD COLUMN IF NOT EXISTS priority VARCHAR(50) DEFAULT 'normal';
+      ALTER TABLE items ADD COLUMN IF NOT EXISTS price NUMERIC DEFAULT 0;
+      ALTER TABLE items ADD COLUMN IF NOT EXISTS supplier VARCHAR(255);
     `);
 
     // تهيئة المستخدمين الافتراضيين إذا كانت قاعدة البيانات جديدة
@@ -101,7 +110,7 @@ async function initCloudDB() {
   }
 }
 
-// دالة قراءة الملف المحلي
+// دالة قراءة الملف المحلي مع استرداد آمن
 function readLocalData() {
   try {
     if (!fs.existsSync(DATA_FILE)) {
@@ -118,23 +127,37 @@ function readLocalData() {
     if (!data.items) data.items = [];
     return data;
   } catch (err) {
+    console.error('Error reading local data file, checking backup:', err);
+    const backupFile = `${DATA_FILE}.bak`;
+    if (fs.existsSync(backupFile)) {
+      try {
+        const rawBak = fs.readFileSync(backupFile, 'utf-8');
+        return JSON.parse(rawBak);
+      } catch (bakErr) {}
+    }
     return { items: [], users: DEFAULT_USERS, history: [] };
   }
 }
 
 function writeLocalData(data) {
   try {
+    if (fs.existsSync(DATA_FILE)) {
+      try { fs.copyFileSync(DATA_FILE, `${DATA_FILE}.bak`); } catch (bErr) {}
+    }
     const tempFile = `${DATA_FILE}.tmp`;
     fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tempFile, DATA_FILE);
     return true;
   } catch (err) {
+    console.error('Error writing local data:', err);
     return false;
   }
 }
 
 function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 6);
+  return 'mn_' + timestamp + randomPart;
 }
 
 // كائن db الشامل (يعمل محلياً وسحابياً)
@@ -261,7 +284,9 @@ const db = {
       const { rows } = await pool.query(`
         SELECT 
           id, name, quantity, unit, notes, status, 
+          priority, price, supplier,
           quantity_purchased as "quantityPurchased",
+          received_quantity as "receivedQuantity",
           missing_reason as "missingReason",
           inventory_notes as "inventoryNotes",
           created_by as "createdBy",
@@ -291,6 +316,7 @@ const db = {
       supplier: '',
       status: 'pending',
       quantityPurchased: 0,
+      receivedQuantity: 0,
       missingReason: '',
       inventoryNotes: '',
       createdBy: user ? { id: user.id, name: user.name } : null,
@@ -303,9 +329,9 @@ const db = {
 
     if (isCloudDB && pool) {
       await pool.query(`
-        INSERT INTO items (id, name, quantity, unit, notes, status, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-      `, [newItem.id, newItem.name, newItem.quantity, newItem.unit, newItem.notes, newItem.status, JSON.stringify(newItem.createdBy)]);
+        INSERT INTO items (id, name, quantity, unit, notes, priority, price, supplier, status, quantity_purchased, received_quantity, missing_reason, inventory_notes, created_by, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, 0, '', '', $10, $11)
+      `, [newItem.id, newItem.name, newItem.quantity, newItem.unit, newItem.notes, newItem.priority, newItem.price, newItem.supplier, newItem.status, JSON.stringify(newItem.createdBy), newItem.createdAt]);
       return newItem;
     }
 
@@ -316,6 +342,30 @@ const db = {
   },
 
   async updateItem(id, { name, quantity, unit, notes, priority, price, supplier }) {
+    if (isCloudDB && pool) {
+      const fields = [];
+      const values = [];
+      let idx = 1;
+
+      if (name !== undefined && name !== null) { fields.push(`name = $${idx++}`); values.push(String(name).trim()); }
+      if (quantity !== undefined && quantity !== null && quantity !== '') { fields.push(`quantity = $${idx++}`); values.push(Number(quantity) || 1); }
+      if (unit !== undefined && unit !== null) { fields.push(`unit = $${idx++}`); values.push(String(unit).trim()); }
+      if (notes !== undefined && notes !== null) { fields.push(`notes = $${idx++}`); values.push(String(notes).trim()); }
+      if (priority !== undefined && priority !== null) { fields.push(`priority = $${idx++}`); values.push(priority); }
+      if (price !== undefined && price !== null && price !== '') { fields.push(`price = $${idx++}`); values.push(Number(price) || 0); }
+      if (supplier !== undefined && supplier !== null) { fields.push(`supplier = $${idx++}`); values.push(String(supplier).trim()); }
+
+      if (fields.length === 0) {
+        const { rows } = await pool.query('SELECT * FROM items WHERE id = $1', [id]);
+        return rows[0] || null;
+      }
+
+      values.push(id);
+      const query = `UPDATE items SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`;
+      const { rows } = await pool.query(query, values);
+      return rows[0] || null;
+    }
+
     const data = readLocalData();
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
@@ -334,14 +384,26 @@ const db = {
     const purchasedBy = user ? { id: user.id, name: user.name } : null;
     const purchasedAt = new Date().toISOString();
     const isRevert = status === 'pending';
+    const isUnavailable = status === 'unavailable';
+    const finalQty = (isRevert || isUnavailable) ? 0 : (quantityPurchased !== undefined ? Number(quantityPurchased) : 1);
+    const finalPurchasedBy = isRevert ? null : purchasedBy;
+    const finalPurchasedAt = isRevert ? null : purchasedAt;
+    const itemPrice = (price !== undefined && price !== null && price !== '') ? Number(price) : null;
+    const itemSupplier = (supplier !== undefined && supplier !== null) ? String(supplier).trim() : null;
 
     if (isCloudDB && pool) {
       const { rows } = await pool.query(`
         UPDATE items 
-        SET status = $1, quantity_purchased = $2, missing_reason = $3, purchased_by = $4, purchased_at = $5
-        WHERE id = $6
+        SET status = $1, 
+            quantity_purchased = $2, 
+            missing_reason = $3, 
+            purchased_by = $4, 
+            purchased_at = $5,
+            price = COALESCE($6, price),
+            supplier = COALESCE($7, supplier)
+        WHERE id = $8
         RETURNING *
-      `, [status, isRevert ? 0 : (Number(quantityPurchased) || 0), (missingReason || '').trim(), isRevert ? null : JSON.stringify(purchasedBy), isRevert ? null : purchasedAt, id]);
+      `, [status, finalQty, (missingReason || '').trim(), isRevert ? null : JSON.stringify(finalPurchasedBy), finalPurchasedAt, itemPrice, itemSupplier, id]);
       return rows[0] || null;
     }
 
@@ -349,12 +411,12 @@ const db = {
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
     item.status = status;
-    item.quantityPurchased = isRevert ? 0 : (quantityPurchased !== undefined ? Number(quantityPurchased) : item.quantity);
+    item.quantityPurchased = finalQty;
     item.missingReason = isRevert ? '' : (missingReason !== undefined ? missingReason.trim() : item.missingReason);
-    if (price !== undefined && price !== null && price !== '') item.price = Number(price);
-    if (supplier !== undefined && supplier !== null) item.supplier = String(supplier).trim();
-    item.purchasedBy = isRevert ? null : purchasedBy;
-    item.purchasedAt = isRevert ? null : purchasedAt;
+    if (itemPrice !== null) item.price = itemPrice;
+    if (itemSupplier !== null) item.supplier = itemSupplier;
+    item.purchasedBy = finalPurchasedBy;
+    item.purchasedAt = finalPurchasedAt;
     writeLocalData(data);
     return item;
   },
@@ -362,25 +424,28 @@ const db = {
   async confirmInventory(id, { status, inventoryNotes, receivedQuantity, user }) {
     const confirmedBy = user ? { id: user.id, name: user.name } : null;
     const completedAt = new Date().toISOString();
+    const finalStatus = status || 'completed';
+    const finalCompletedAt = finalStatus === 'completed' ? completedAt : null;
+    const recQty = Number(receivedQuantity) || 0;
 
     if (isCloudDB && pool) {
       const { rows } = await pool.query(`
         UPDATE items 
-        SET status = $1, inventory_notes = $2, confirmed_by = $3, completed_at = $4
-        WHERE id = $5
+        SET status = $1, inventory_notes = $2, received_quantity = $3, confirmed_by = $4, completed_at = $5
+        WHERE id = $6
         RETURNING *
-      `, [status || 'completed', (inventoryNotes || '').trim(), JSON.stringify(confirmedBy), completedAt, id]);
+      `, [finalStatus, (inventoryNotes || '').trim(), recQty, JSON.stringify(confirmedBy), finalCompletedAt, id]);
       return rows[0] || null;
     }
 
     const data = readLocalData();
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
-    item.status = status || 'completed';
+    item.status = finalStatus;
     if (inventoryNotes !== undefined) item.inventoryNotes = inventoryNotes.trim();
-    if (receivedQuantity !== undefined) item.receivedQuantity = Number(receivedQuantity);
+    item.receivedQuantity = recQty;
     item.confirmedBy = confirmedBy;
-    item.completedAt = completedAt;
+    item.completedAt = finalCompletedAt;
     writeLocalData(data);
     return item;
   },
@@ -407,8 +472,9 @@ const db = {
     if (isCloudDB && pool) {
       const { rows } = await pool.query(`
         UPDATE items 
-        SET status = 'pending', quantity_purchased = 0, missing_reason = '', inventory_notes = '', 
-            purchased_at = NULL, completed_at = NULL, created_at = $1, created_by = $2
+        SET status = 'pending', quantity_purchased = 0, received_quantity = 0, price = 0, missing_reason = '', inventory_notes = '', 
+            purchased_by = NULL, purchased_at = NULL, confirmed_by = NULL, completed_at = NULL, 
+            created_at = $1, created_by = $2
         WHERE id = $3
         RETURNING *
       `, [createdAt, JSON.stringify(createdBy), id]);
@@ -420,9 +486,13 @@ const db = {
     if (!item) return null;
     item.status = 'pending';
     item.quantityPurchased = 0;
+    item.receivedQuantity = 0;
+    item.price = 0;
     item.missingReason = '';
     item.inventoryNotes = '';
+    item.purchasedBy = null;
     item.purchasedAt = null;
+    item.confirmedBy = null;
     item.completedAt = null;
     item.createdAt = createdAt;
     if (user) item.createdBy = createdBy;

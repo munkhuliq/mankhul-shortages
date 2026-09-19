@@ -143,7 +143,7 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 app.get('/api/items', async (req, res) => {
   try {
     const items = await db.getAllItems();
-    res.json({ success: true, items });
+    res.json({ success: true, items, notifications: [] });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

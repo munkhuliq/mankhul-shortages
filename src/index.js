@@ -13,7 +13,9 @@ function jsonResponse(data, status = 200) {
 }
 
 function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+  const timestamp = Date.now().toString(36);
+  const randomPart = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 6);
+  return 'mn_' + timestamp + randomPart;
 }
 
 function safeJsonParse(val) {
@@ -22,6 +24,93 @@ function safeJsonParse(val) {
     return JSON.parse(val);
   } catch (e) {
     return typeof val === 'string' ? { id: '', name: val } : null;
+  }
+}
+
+function mapItemRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    quantity: row.quantity,
+    unit: row.unit,
+    notes: row.notes,
+    status: row.status,
+    priority: row.priority || 'normal',
+    price: Number(row.price) || 0,
+    supplier: row.supplier || '',
+    quantityPurchased: row.quantity_purchased,
+    receivedQuantity: row.received_quantity || 0,
+    missingReason: row.missing_reason,
+    inventoryNotes: row.inventory_notes,
+    createdBy: safeJsonParse(row.created_by),
+    purchasedBy: safeJsonParse(row.purchased_by),
+    confirmedBy: safeJsonParse(row.confirmed_by),
+    createdAt: row.created_at,
+    purchasedAt: row.purchased_at,
+    completedAt: row.completed_at
+  };
+}
+
+let tablesInitialized = false;
+async function ensureTables(db) {
+  if (tablesInitialized) return;
+  try {
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TEXT
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS items (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        quantity REAL NOT NULL DEFAULT 1,
+        unit TEXT DEFAULT 'قطعة',
+        notes TEXT,
+        status TEXT DEFAULT 'pending',
+        quantity_purchased REAL DEFAULT 0,
+        missing_reason TEXT,
+        inventory_notes TEXT,
+        received_quantity REAL DEFAULT 0,
+        priority TEXT DEFAULT 'normal',
+        price REAL DEFAULT 0,
+        supplier TEXT,
+        created_by TEXT,
+        purchased_by TEXT,
+        confirmed_by TEXT,
+        created_at TEXT,
+        purchased_at TEXT,
+        completed_at TEXT
+      )
+    `).run();
+
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        body TEXT NOT NULL,
+        target_role TEXT,
+        created_at TEXT
+      )
+    `).run();
+
+    await db.prepare(`
+      INSERT OR IGNORE INTO users (id, name, username, password, role, created_at) VALUES 
+      ('usr_admin', 'المدير العام', 'admin', '123456', 'admin', datetime('now')),
+      ('usr_store', 'مسؤول المخزن', 'store', '1234', 'warehouse', datetime('now')),
+      ('usr_buyer', 'مسؤول المشتريات', 'buyer', '1234', 'purchasing', datetime('now'))
+    `).run();
+
+    tablesInitialized = true;
+  } catch (e) {
+    // Ignore if already initialized
   }
 }
 
@@ -55,6 +144,9 @@ export default {
     const path = url.pathname;
     const method = request.method;
     const db = env.DB;
+
+    // تهيئة الجداول تلقائياً إن لم تكن موجودة
+    await ensureTables(db);
 
     // استخراج هوية المستخدم من الترويسة
     const userId = request.headers.get('x-user-id') || 
@@ -283,7 +375,8 @@ export default {
           VALUES (?, ?, ?, 'warehouse', datetime('now'))
         `).bind(notifId, isRevert ? 'تعديل حالة المادة 🔄' : 'تحديث المشتريات 🛒', `${itemName}: ${statusText} (بواسطة ${actorName})`).run().catch(() => {});
 
-        return jsonResponse({ success: true });
+        const updatedRow = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+        return jsonResponse({ success: true, item: mapItemRow(updatedRow) });
       }
 
       // 7. تأكيد الجرد والاستلام
@@ -302,7 +395,8 @@ export default {
           WHERE id = ?
         `).bind(finalStatus, (inventoryNotes || '').trim(), Number(receivedQuantity) || 0, confirmedBy, completedAt, id).run();
 
-        return jsonResponse({ success: true });
+        const updatedRow = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+        return jsonResponse({ success: true, item: mapItemRow(updatedRow) });
       }
 
       // 8. إعادة الطلب
@@ -328,7 +422,8 @@ export default {
           VALUES (?, ?, ?, 'purchasing', datetime('now'))
         `).bind(notifId, 'إعادة طلب مادة! 🔄', `تمت إعادة طلب: ${itemName} بواسطة ${actorName}`).run().catch(() => {});
 
-        return jsonResponse({ success: true });
+        const updatedRow = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+        return jsonResponse({ success: true, item: mapItemRow(updatedRow) });
       }
 
       // 9. تعديل مادة (الاسم، الكمية، الوحدة، الملاحظة، الأولوية، السعر، المورد)
@@ -366,14 +461,15 @@ export default {
           id
         ).run();
 
-        return jsonResponse({ success: true });
+        const updatedRow = await db.prepare('SELECT * FROM items WHERE id = ?').bind(id).first();
+        return jsonResponse({ success: true, item: mapItemRow(updatedRow) });
       }
 
       // 10. حذف مادة
       if (path.match(/^\/api\/items\/[^\/]+$/) && method === 'DELETE') {
         const id = decodeURIComponent(path.split('/')[3]);
         await db.prepare('DELETE FROM items WHERE id = ?').bind(id).run();
-        return jsonResponse({ success: true });
+        return jsonResponse({ success: true, id });
       }
 
       // 11. إشعار وصول المشتريات للمخزن

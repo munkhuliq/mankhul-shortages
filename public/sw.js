@@ -60,6 +60,7 @@ self.addEventListener('fetch', (event) => {
           if (event.request.headers.get('accept')?.includes('text/html')) {
             return caches.match('/index.html');
           }
+          return new Response('', { status: 503, statusText: 'Service Unavailable' });
         });
       })
   );

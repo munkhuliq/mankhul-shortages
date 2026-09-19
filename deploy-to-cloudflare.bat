@@ -1,23 +1,16 @@
 @echo off
 chcp 65001 > nul
-title رفع نظام منخل إلى Cloudflare Pages
+title رفع وتحديث نظام منخل إلى Cloudflare Workers
 echo ===================================================================
-echo         جاري تسجيل الدخول ورفع الموقع إلى Cloudflare Pages...
+echo     جاري رفع نظام نقوصات مقهى منخل إلى Cloudflare Workers...
 echo ===================================================================
 echo.
-echo سيفتح لك المتصفح الآن لتسجيل الدخول إلى Cloudflare والموافقة (Allow).
-echo بمجرد الضغط على Allow، سيتم رفع الموقع وتوليد الرابط فوراً!
-echo.
-echo ===================================================================
 cd /d "d:\نقوصات منخل"
-call npx wrangler login
+set CLOUDFLARE_ACCOUNT_ID=37d7c59a191abea5aeaaba8d66a827e5
+call .\node_modules\.bin\wrangler.cmd deploy
 echo.
 echo ===================================================================
-echo  جاري الرفع الآن إلى Cloudflare Pages...
-echo ===================================================================
-call npx wrangler pages deploy public --project-name=mankhul-shortages --branch=main
-echo.
-echo ===================================================================
-echo  تم الرفع بنجاح إلى كلاودفلاير!
+echo  تم الرفع والنشر بنجاح إلى كلاودفلاير ووركرز!
+echo  الرابط: https://mankhul-shortages.munkhul-iq.workers.dev
 echo ===================================================================
 pause

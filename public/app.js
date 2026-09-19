@@ -1185,11 +1185,11 @@ function renderAdminUsers() {
         <p class="text-[11px] text-slate-400 font-mono mt-0.5">اسم الدخول: <span class="font-bold text-slate-600">${escapeHtml(u.username)}</span></p>
       </div>
       <div class="flex items-center gap-1">
-        <button onclick="changeUserPassword('${u.id}', '${escapeHtml(u.name)}')" class="p-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold" title="تغيير كلمة المرور">
+        <button onclick="changeUserPassword('${u.id}')" class="p-1.5 px-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold" title="تغيير كلمة المرور">
           🔑 رمز
         </button>
         ${u.username !== 'admin' ? `
-          <button onclick="deleteUser('${u.id}', '${escapeHtml(u.name)}')" class="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg text-xs" title="حذف">
+          <button onclick="deleteUser('${u.id}')" class="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg text-xs" title="حذف">
             🗑️
           </button>
         ` : ''}
@@ -1237,7 +1237,9 @@ elements.addUserForm.addEventListener('submit', async (e) => {
 });
 
 async function changeUserPassword(id, name) {
-  const newPass = prompt(`أدخل كلمة المرور / الرمز الجديد للموظف (${name}):`, '1234');
+  const user = usersData.find(u => u.id === id);
+  const displayName = name || (user ? user.name : 'الموظف');
+  const newPass = prompt(`أدخل كلمة المرور / الرمز الجديد للموظف (${displayName}):`, '1234');
   if (!newPass || !newPass.trim()) return;
 
   try {
@@ -1248,7 +1250,7 @@ async function changeUserPassword(id, name) {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.success === undefined)) {
-      showToast('تم التعديل', `تم تغيير كلمة مرور ${name} بنجاح`, '🔑', 'purple');
+      showToast('تم التعديل', `تم تغيير كلمة مرور ${displayName} بنجاح`, '🔑', 'purple');
     } else {
       showToast('تعذر التعديل', data.error || 'تعذر تعديل كلمة المرور', '⚠️', 'rose');
     }
@@ -1259,7 +1261,9 @@ async function changeUserPassword(id, name) {
 }
 
 async function deleteUser(id, name) {
-  if (!confirm(`هل أنت متأكد من حذف حساب الموظف (${name})؟ لن يتمكن من الدخول للنظام بعد ذلك.`)) return;
+  const user = usersData.find(u => u.id === id);
+  const displayName = name || (user ? user.name : 'الموظف');
+  if (!confirm(`هل أنت متأكد من حذف حساب الموظف (${displayName})؟ لن يتمكن من الدخول للنظام بعد ذلك.`)) return;
   try {
     const res = await fetch(`/api/admin/users/${id}`, {
       method: 'DELETE',
@@ -1267,7 +1271,7 @@ async function deleteUser(id, name) {
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.success === undefined)) {
-      showToast('تم الحذف', `تم حذف حساب ${name}`, '🗑️', 'slate');
+      showToast('تم الحذف', `تم حذف حساب ${displayName}`, '🗑️', 'slate');
       try { await fetchAdminUsers(); } catch (e) {}
     } else {
       showToast('تعذر الحذف', data.error || 'تعذر حذف الموظف من الخادم', '⚠️', 'rose');
@@ -1887,7 +1891,12 @@ function formatTime(isoStr) {
 
 function escapeHtml(str) {
   if (!str) return '';
-  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ==========================================
@@ -2471,6 +2480,7 @@ window.addEventListener('keydown', (e) => {
 });
 
 // إتاحة الدوال العامة على كائن window للأمان التام
+window.currentUser = currentUser;
 window.openItemTimeline = openItemTimeline;
 window.openVoucherModal = openVoucherModal;
 window.openPurchaseModal = openPurchaseModal;
@@ -2484,10 +2494,32 @@ window.deleteItem = deleteItem;
 window.changeUserPassword = changeUserPassword;
 window.deleteUser = deleteUser;
 
+async function verifySession() {
+  if (!currentUser || !currentUser.id) return;
+  try {
+    const res = await fetch('/api/auth/me', { headers: authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (data.success && data.user) {
+      currentUser = data.user;
+      window.currentUser = currentUser;
+      localStorage.setItem('mankhul_user', JSON.stringify(currentUser));
+      applyUserRole();
+    } else if (res.status === 401) {
+      currentUser = null;
+      window.currentUser = null;
+      localStorage.removeItem('mankhul_user');
+      applyUserRole();
+    }
+  } catch (e) {
+    // Keep offline fallback session
+  }
+}
+
 // بدء التشغيل
 applyTheme();
 elements.soundIcon.textContent = soundEnabled ? '🔔' : '🔕';
 applyUserRole();
 initSocket();
 fetchItems();
+verifySession();
 
