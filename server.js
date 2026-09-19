@@ -139,6 +139,16 @@ app.delete('/api/admin/users/:id', async (req, res) => {
 // مسارات إدارة المواد والنقوصات (Items APIs)
 // ==========================================
 
+// حماية عمليات الإضافة والتعديل والحذف على المواد
+app.use('/api/items', (req, res, next) => {
+  if (['POST', 'PUT', 'DELETE'].includes(req.method)) {
+    if (!req.user || !req.user.id) {
+      return res.status(403).json({ success: false, error: 'غير مصرح لك بالوصول، يرجى تسجيل الدخول أولاً' });
+    }
+  }
+  next();
+});
+
 // جلب كل المواد
 app.get('/api/items', async (req, res) => {
   try {

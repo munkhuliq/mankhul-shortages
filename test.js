@@ -10,6 +10,7 @@ function request(path, method = 'GET', data = null) {
       method,
       headers: {
         'Content-Type': 'application/json',
+        'x-user-id': 'usr_admin',
         ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {})
       }
     }, (res) => {

@@ -385,13 +385,27 @@ const db = {
     const purchasedAt = new Date().toISOString();
     const isRevert = status === 'pending';
     const isUnavailable = status === 'unavailable';
-    const finalQty = (isRevert || isUnavailable) ? 0 : (quantityPurchased !== undefined ? Number(quantityPurchased) : 1);
     const finalPurchasedBy = isRevert ? null : purchasedBy;
     const finalPurchasedAt = isRevert ? null : purchasedAt;
     const itemPrice = (price !== undefined && price !== null && price !== '') ? Number(price) : null;
     const itemSupplier = (supplier !== undefined && supplier !== null) ? String(supplier).trim() : null;
 
     if (isCloudDB && pool) {
+      const existing = await pool.query('SELECT * FROM items WHERE id = $1', [id]);
+      if (!existing.rows.length) return null;
+      const currentItem = existing.rows[0];
+
+      let finalQty = 0;
+      if (isRevert || isUnavailable) {
+        finalQty = 0;
+      } else if (quantityPurchased !== undefined && quantityPurchased !== null && quantityPurchased !== '') {
+        finalQty = Number(quantityPurchased);
+      } else if (status === 'purchased') {
+        finalQty = Number(currentItem.quantity) || 1;
+      } else {
+        finalQty = 1;
+      }
+
       const { rows } = await pool.query(`
         UPDATE items 
         SET status = $1, 
@@ -410,6 +424,18 @@ const db = {
     const data = readLocalData();
     const item = data.items.find(i => i.id === id);
     if (!item) return null;
+
+    let finalQty = 0;
+    if (isRevert || isUnavailable) {
+      finalQty = 0;
+    } else if (quantityPurchased !== undefined && quantityPurchased !== null && quantityPurchased !== '') {
+      finalQty = Number(quantityPurchased);
+    } else if (status === 'purchased') {
+      finalQty = Number(item.quantity) || 1;
+    } else {
+      finalQty = 1;
+    }
+
     item.status = status;
     item.quantityPurchased = finalQty;
     item.missingReason = isRevert ? '' : (missingReason !== undefined ? missingReason.trim() : item.missingReason);

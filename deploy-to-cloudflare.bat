@@ -1,16 +1,39 @@
 @echo off
 chcp 65001 > nul
-title رفع وتحديث نظام منخل إلى Cloudflare Workers
+title رفع وتحديث نظام مقهى منخل إلى Cloudflare Workers
 echo ===================================================================
-echo     جاري رفع نظام نقوصات مقهى منخل إلى Cloudflare Workers...
+echo     فحص تسجيل الدخول إلى Cloudflare...
 echo ===================================================================
 echo.
-cd /d "d:\نقوصات منخل"
-set CLOUDFLARE_ACCOUNT_ID=37d7c59a191abea5aeaaba8d66a827e5
+cd /d "%~dp0"
+
+call .\node_modules\.bin\wrangler.cmd whoami
+if %errorlevel% neq 0 (
+    echo.
+    echo ===================================================================
+    echo  [تنبيه] لم يتم تسجيل الدخول إلى حساب Cloudflare بعد!
+    echo  يرجى تشغيل الأمر التالي لتسجيل الدخول أولاً:
+    echo      npx wrangler login
+    echo ===================================================================
+    pause
+    exit /b %errorlevel%
+)
+
+echo.
+echo ===================================================================
+echo     جاري رفع ونشر النظام إلى Cloudflare Workers...
+echo ===================================================================
+echo.
 call .\node_modules\.bin\wrangler.cmd deploy
+if %errorlevel% neq 0 (
+    echo.
+    echo [خطأ] فشلت عملية النشر. يرجى مراجعة رسائل الخطأ أعلاه.
+    pause
+    exit /b %errorlevel%
+)
+
 echo.
 echo ===================================================================
-echo  تم الرفع والنشر بنجاح إلى كلاودفلاير ووركرز!
-echo  الرابط: https://mankhul-shortages.munkhul-iq.workers.dev
+echo  اكتمل النشر بنجاح! راجع الرابط الفعلي الموضح أعلاه في مخرجات Wrangler.
 echo ===================================================================
 pause

@@ -279,9 +279,10 @@ elements.loginForm.addEventListener('submit', async (e) => {
     const data = await res.json();
     if (data.success && data.user) {
       currentUser = data.user;
+      window.currentUser = currentUser;
       localStorage.setItem('mankhul_user', JSON.stringify(currentUser));
       elements.loginScreen.classList.add('hidden');
-      applyUserRole();
+      applyUserRole(false);
       fetchItems();
       if (currentUser.role === 'admin') {
         fetchAdminUsers();
@@ -300,6 +301,7 @@ elements.loginForm.addEventListener('submit', async (e) => {
 elements.logoutBtn.addEventListener('click', () => {
   if (!confirm('هل تريد بالتأكيد تسجيل الخروج؟')) return;
   currentUser = null;
+  window.currentUser = null;
   localStorage.removeItem('mankhul_user');
   elements.loginUsername.value = '';
   elements.loginPassword.value = '';
@@ -307,7 +309,7 @@ elements.logoutBtn.addEventListener('click', () => {
 });
 
 // تطبيق صلاحيات المستخدم النشط
-function applyUserRole() {
+function applyUserRole(keepCurrentTab = false) {
   if (!currentUser) {
     elements.loginScreen.classList.remove('hidden');
     return;
@@ -331,6 +333,7 @@ function applyUserRole() {
   elements.userRoleBadge.className = `px-2 py-0.5 rounded text-[10px] text-white font-bold ${roleBadges[currentUser.role] || 'bg-slate-700'}`;
 
   // تعديل شريط التنقل حسب الدور
+  let defaultTab = 'warehouse';
   if (currentUser.role === 'admin') {
     // المدير يرى كل شيء: المخزن، المشتريات، السجل، والموظفين
     elements.mainNavBar.className = 'grid grid-cols-4 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
@@ -338,7 +341,7 @@ function applyUserRole() {
     elements.tabPurchasingBtn.classList.remove('hidden');
     elements.tabArchiveBtn.classList.remove('hidden');
     elements.tabAdminBtn.classList.remove('hidden');
-    switchTab('warehouse');
+    defaultTab = 'warehouse';
   } else if (currentUser.role === 'warehouse') {
     // موظف المخزن يرى المخزن والسجل فقط
     elements.mainNavBar.className = 'grid grid-cols-2 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
@@ -346,7 +349,7 @@ function applyUserRole() {
     elements.tabPurchasingBtn.classList.add('hidden');
     elements.tabArchiveBtn.classList.remove('hidden');
     elements.tabAdminBtn.classList.add('hidden');
-    switchTab('warehouse');
+    defaultTab = 'warehouse';
   } else if (currentUser.role === 'purchasing') {
     // موظف المشتريات يرى المشتريات والسجل فقط
     elements.mainNavBar.className = 'grid grid-cols-2 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
@@ -354,8 +357,11 @@ function applyUserRole() {
     elements.tabPurchasingBtn.classList.remove('hidden');
     elements.tabArchiveBtn.classList.remove('hidden');
     elements.tabAdminBtn.classList.add('hidden');
-    switchTab('purchasing');
+    defaultTab = 'purchasing';
   }
+
+  const targetTab = (keepCurrentTab && currentTab) ? currentTab : defaultTab;
+  switchTab(targetTab);
 }
 
 // ==========================================
@@ -1413,26 +1419,6 @@ if (elements.editItemForm) {
   });
 }
 
-async function markPurchasedFast(id) {
-  try {
-    const res = await fetch(`/api/items/${id}/purchase`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ status: 'purchased' })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok && (data.success || data.success === undefined)) {
-      showToast('تم تسجيل الشراء', 'تم حفظ المادة كـ مشتراة بنجاح', '✅', 'emerald');
-      try { await fetchItems(); } catch (e) {}
-    } else {
-      showToast('تعذر التحديث', data.error || 'فشل تسجيل الشراء في الخادم', '⚠️', 'rose');
-    }
-  } catch (err) {
-    console.error('Mark purchased fast error:', err);
-    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتسجيل الشراء', '⚠️', 'rose');
-  }
-}
-
 function openPurchaseModal(id, action) {
   const item = itemsData.find(i => i.id === id);
   if (!item) return;
@@ -2484,7 +2470,6 @@ window.currentUser = currentUser;
 window.openItemTimeline = openItemTimeline;
 window.openVoucherModal = openVoucherModal;
 window.openPurchaseModal = openPurchaseModal;
-window.markPurchasedFast = markPurchasedFast;
 window.openEditModal = openEditModal;
 window.confirmInventoryFast = confirmInventoryFast;
 window.openInventoryModal = openInventoryModal;
@@ -2503,12 +2488,12 @@ async function verifySession() {
       currentUser = data.user;
       window.currentUser = currentUser;
       localStorage.setItem('mankhul_user', JSON.stringify(currentUser));
-      applyUserRole();
+      applyUserRole(true);
     } else if (res.status === 401) {
       currentUser = null;
       window.currentUser = null;
       localStorage.removeItem('mankhul_user');
-      applyUserRole();
+      applyUserRole(false);
     }
   } catch (e) {
     // Keep offline fallback session
@@ -2518,7 +2503,7 @@ async function verifySession() {
 // بدء التشغيل
 applyTheme();
 elements.soundIcon.textContent = soundEnabled ? '🔔' : '🔕';
-applyUserRole();
+applyUserRole(true);
 initSocket();
 fetchItems();
 verifySession();

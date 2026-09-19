@@ -108,6 +108,31 @@ async function ensureTables(db) {
       ('usr_buyer', 'مسؤول المشتريات', 'buyer', '1234', 'purchasing', datetime('now'))
     `).run();
 
+    // ترحيل الأعمدة الآمن لقواعد D1 السابقة
+    const tableInfo = await db.prepare('PRAGMA table_info(items)').all();
+    const existingCols = new Set((tableInfo.results || []).map(r => r.name));
+
+    const migrationColumns = [
+      { name: 'received_quantity', type: 'REAL DEFAULT 0' },
+      { name: 'priority', type: "TEXT DEFAULT 'normal'" },
+      { name: 'price', type: 'REAL DEFAULT 0' },
+      { name: 'supplier', type: 'TEXT' },
+      { name: 'quantity_purchased', type: 'REAL DEFAULT 0' },
+      { name: 'missing_reason', type: 'TEXT' },
+      { name: 'inventory_notes', type: 'TEXT' },
+      { name: 'created_by', type: 'TEXT' },
+      { name: 'purchased_by', type: 'TEXT' },
+      { name: 'confirmed_by', type: 'TEXT' },
+      { name: 'purchased_at', type: 'TEXT' },
+      { name: 'completed_at', type: 'TEXT' }
+    ];
+
+    for (const col of migrationColumns) {
+      if (!existingCols.has(col.name)) {
+        await db.prepare(`ALTER TABLE items ADD COLUMN ${col.name} ${col.type}`).run().catch(() => {});
+      }
+    }
+
     tablesInitialized = true;
   } catch (e) {
     // Ignore if already initialized
@@ -240,6 +265,13 @@ export default {
         }
       }
 
+      // التحقق من صلاحية المستخدم لعمليات الإضافة والتعديل والحذف على المواد
+      if (path.startsWith('/api/items') && ['POST', 'PUT', 'DELETE'].includes(method)) {
+        if (!currentUser || !currentUser.id) {
+          return jsonResponse({ success: false, error: 'غير مصرح لك بالوصول، يرجى تسجيل الدخول أولاً' }, 403);
+        }
+      }
+
       // 4. جلب جميع المواد والإشعارات اللحظية
       if (path === '/api/items' && method === 'GET') {
         const { results } = await db.prepare('SELECT * FROM items ORDER BY created_at DESC').all();
@@ -346,13 +378,25 @@ export default {
         const purchasedBy = currentUser ? JSON.stringify({ id: currentUser.id, name: currentUser.name }) : null;
         const now = new Date().toISOString();
         const itemPrice = (price !== undefined && price !== null && price !== '') ? Math.max(0, Math.round(Number(price))) : null;
-        const cleanQtyPurchased = Math.max(0, Number(quantityPurchased) || 0);
         const cleanSupplier = (supplier !== undefined && supplier !== null) ? String(supplier).trim() : null;
 
         const isRevert = status === 'pending';
+        const isUnavailable = status === 'unavailable';
         const finalPurchasedBy = isRevert ? null : purchasedBy;
         const finalPurchasedAt = isRevert ? null : now;
-        const finalQtyPurchased = isRevert ? 0 : cleanQtyPurchased;
+
+        const itemRow = await db.prepare('SELECT name, quantity FROM items WHERE id = ?').bind(id).first();
+
+        let finalQtyPurchased = 0;
+        if (isRevert || isUnavailable) {
+          finalQtyPurchased = 0;
+        } else if (quantityPurchased !== undefined && quantityPurchased !== null && quantityPurchased !== '') {
+          finalQtyPurchased = Math.max(0, Number(quantityPurchased) || 0);
+        } else if (status === 'purchased') {
+          finalQtyPurchased = itemRow ? (Number(itemRow.quantity) || 1) : 1;
+        } else {
+          finalQtyPurchased = 1;
+        }
 
         await db.prepare(`
           UPDATE items 
@@ -361,12 +405,11 @@ export default {
         `).bind(status, finalQtyPurchased, (missingReason ? String(missingReason).trim() : ''), itemPrice, cleanSupplier, finalPurchasedBy, finalPurchasedAt, id).run();
 
         // إشعار المخزن بالتحديث
-        const itemRow = await db.prepare('SELECT name FROM items WHERE id = ?').bind(id).first();
         const itemName = itemRow ? itemRow.name : 'مادة';
         let statusText = 'تم الشراء';
         if (isRevert) statusText = 'تمت الإعادة لقائمة المطلوب شراؤها';
-        else if (status === 'partial') statusText = `تم شراء جزء (${quantityPurchased})`;
-        else if (status === 'unavailable') statusText = 'غير متوفرة حالياً';
+        else if (status === 'partial') statusText = `تم شراء جزء (${finalQtyPurchased})`;
+        else if (isUnavailable) statusText = 'غير متوفرة حالياً';
         const actorName = currentUser ? currentUser.name : 'المشتريات';
 
         const notifId = generateId();
