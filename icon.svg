@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <!-- Box Icon -->
+  <path d="M256 120 L380 185 L256 250 L132 185 Z" fill="#34d399" opacity="0.9"/>
+  <path d="M132 185 L256 250 L256 392 L132 327 Z" fill="#059669"/>
+  <path d="M380 185 L256 250 L256 392 L380 327 Z" fill="#10b981"/>
+  <!-- Cart or check overlay -->
+  <circle cx="360" cy="360" r="70" fill="#f59e0b"/>
+  <path d="M335 360 L355 380 L390 340" stroke="#ffffff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

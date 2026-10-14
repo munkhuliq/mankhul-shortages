@@ -1,0 +1,32 @@
+{
+  "name": "نقوصات مقهى منخل",
+  "short_name": "مقهى منخل",
+  "description": "نظام إدارة ومتابعة نقوصات ومشتريات مقهى منخل",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#0f172a",
+  "theme_color": "#059669",
+  "categories": [
+    "business",
+    "productivity",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
