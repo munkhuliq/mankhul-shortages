@@ -2,6 +2,9 @@
   "name": "mankhul-shortages",
   "main": "src/index.js",
   "compatibility_date": "2026-09-15",
+  "vars": {
+    "ALLOWED_ORIGINS": "https://munkhuliq.github.io"
+  },
   "observability": {
     "enabled": true
   },

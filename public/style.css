@@ -246,6 +246,7 @@ body.dark-mode .chart-axis-line {
   #toggle-filters-btn,
   #toggle-analytics-btn,
   #open-voucher-btn,
+  #open-debt-list-btn,
   #advanced-filters-panel,
   #analytics-panel,
   .no-print,
@@ -254,18 +255,26 @@ body.dark-mode .chart-axis-line {
   }
 
   /* في حال كان سند الاستلام مفتوحاً، نطبع السند فقط */
-  body:has(#voucher-print-modal:not(.hidden)) #archive-view {
+  body:has(#voucher-print-modal:not(.hidden)) #archive-view,
+  body.printing-voucher #archive-view {
     display: none !important;
   }
 
-  body:has(#voucher-print-modal:not(.hidden)) #voucher-print-modal {
+  body:has(#voucher-print-modal:not(.hidden)) #debt-list-modal,
+  body.printing-voucher #debt-list-modal {
+    display: none !important;
+  }
+
+  body:has(#voucher-print-modal:not(.hidden)) #voucher-print-modal,
+  body.printing-voucher #voucher-print-modal {
     position: static !important;
     display: block !important;
     padding: 0 !important;
     background: transparent !important;
   }
 
-  body:has(#voucher-print-modal:not(.hidden)) #voucher-print-modal > div {
+  body:has(#voucher-print-modal:not(.hidden)) #voucher-print-modal > div,
+  body.printing-voucher #voucher-print-modal > div {
     max-width: 100% !important;
     max-height: none !important;
     box-shadow: none !important;
@@ -276,6 +285,58 @@ body.dark-mode .chart-axis-line {
   #printable-voucher-content {
     border: 2px solid #000 !important;
     page-break-inside: avoid;
+  }
+
+  /* في حال كان كشف الديون مفتوحاً، نطبع كشف الديون فقط */
+  body:has(#debt-list-modal:not(.hidden)) #archive-view,
+  body.printing-debt #archive-view {
+    display: none !important;
+  }
+
+  body:has(#debt-list-modal:not(.hidden)) #voucher-print-modal,
+  body.printing-debt #voucher-print-modal {
+    display: none !important;
+  }
+
+  body:has(#debt-list-modal:not(.hidden)) #debt-list-modal,
+  body.printing-debt #debt-list-modal {
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+
+  body:has(#debt-list-modal:not(.hidden)) #debt-list-modal > div,
+  body.printing-debt #debt-list-modal > div {
+    max-width: 100% !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  #printable-debt-content {
+    border: 2px solid #000 !important;
+    page-break-inside: avoid;
+  }
+
+  #printable-debt-content img {
+    display: inline-block !important;
+    max-height: 80px !important;
+    max-width: 80px !important;
+    border-radius: 8px !important;
+  }
+
+  #printable-debt-content table th,
+  #printable-debt-content table td {
+    border: 1px solid #000000 !important;
+    color: #000000 !important;
+    background-color: #ffffff !important;
+  }
+
+  #printable-debt-content table thead tr,
+  #printable-debt-content table tfoot tr {
+    background-color: #f1f5f9 !important;
   }
 
   #printable-voucher-content img {

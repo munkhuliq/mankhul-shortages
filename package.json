@@ -3,8 +3,13 @@
   "version": "1.0.0",
   "description": "نظام متابعة النقوصات والمشتريات المبسط للهاتف",
   "main": "server.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check server.js && node --check db.js && node --check src/index.js && node --check public/app.js && node --check public/helpers.js && node --check public/sw.js"
   },
   "keywords": [
     "inventory",
@@ -20,6 +25,6 @@
     "socket.io": "^4.7.5"
   },
   "devDependencies": {
-    "wrangler": "^4.132.0"
+    "wrangler": "^4.151.0"
   }
 }

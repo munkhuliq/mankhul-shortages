@@ -4,9 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>نظام نقوصات ومشتريات مقهى منخل</title>
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" type="image/jpeg" href="/logo.jpg">
-  <link rel="apple-touch-icon" href="/logo.jpg">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/jpeg" href="logo.jpg">
+  <link rel="apple-touch-icon" href="logo.jpg">
   <meta name="theme-color" content="#059669">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -19,7 +19,7 @@
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Socket.io -->
-  <script src="/socket.io/socket.io.js"></script>
+
   <script>
     tailwind.config = {
       theme: {
@@ -42,7 +42,7 @@
   <div id="login-screen" class="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl space-y-4 border border-slate-200">
       <div class="text-center">
-        <img src="/logo.jpg" alt="شعار مقهى منخل" class="w-20 h-20 rounded-2xl mx-auto object-cover shadow-xl mb-3 border-2 border-amber-500/40">
+        <img src="logo.jpg" alt="شعار مقهى منخل" class="w-20 h-20 rounded-2xl mx-auto object-cover shadow-xl mb-3 border-2 border-amber-500/40">
         <h2 class="text-lg font-black text-slate-900">مقهى منخل</h2>
         <p class="text-xs text-slate-500 mt-0.5">نظام إدارة ومتابعة النقوصات والمشتريات</p>
       </div>
@@ -51,13 +51,13 @@
         <div id="login-error" class="hidden bg-rose-50 border border-rose-200 text-rose-700 text-xs p-2.5 rounded-xl font-bold text-center"></div>
 
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">اسم المستخدم</label>
+          <label for="login-username" class="block text-xs font-bold text-slate-600 mb-1">اسم المستخدم</label>
           <input type="text" id="login-username" required placeholder="مثال: store أو buyer أو admin" 
                  class="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white transition-all font-semibold">
         </div>
 
         <div>
-          <label class="block text-xs font-bold text-slate-600 mb-1">كلمة المرور / الرمز</label>
+          <label for="login-password" class="block text-xs font-bold text-slate-600 mb-1">كلمة المرور / الرمز</label>
           <input type="password" id="login-password" required placeholder="••••" 
                  class="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white transition-all">
         </div>
@@ -74,13 +74,13 @@
         <p class="text-[11px] text-slate-400 text-center mb-2">اختيار سريع للحساب (ثم اكتب رمزك الخاص):</p>
         <div class="grid grid-cols-3 gap-1.5 text-[11px]">
           <button type="button" onclick="quickFillLogin('admin')" class="py-1.5 px-1 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold rounded-lg border border-purple-200">
-            👔 المدير
+            👔 المدير العام
           </button>
           <button type="button" onclick="quickFillLogin('store')" class="py-1.5 px-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg border border-emerald-200">
-            🏬 المخزن
+            🏬 مدير المخزن
           </button>
           <button type="button" onclick="quickFillLogin('buyer')" class="py-1.5 px-1 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-lg border border-blue-200">
-            🛒 المشتريات
+            🛒 مدير المشتريات
           </button>
         </div>
       </div>
@@ -93,7 +93,7 @@
       <!-- الشريط العلوي الرئيسي -->
       <div class="flex items-center justify-between mb-2">
         <div class="flex items-center gap-2.5 min-w-0">
-          <img src="/logo.jpg" alt="شعار مقهى منخل" class="w-9 h-9 rounded-xl object-cover shadow border border-amber-400/40 shrink-0">
+          <img src="logo.jpg" alt="شعار مقهى منخل" class="w-9 h-9 rounded-xl object-cover shadow border border-amber-400/40 shrink-0">
           <div class="min-w-0">
             <h1 class="text-sm font-bold leading-tight flex items-center gap-1.5 truncate">
               <span>مقهى منخل</span>
@@ -101,6 +101,7 @@
             </h1>
             <p class="text-[11px] text-slate-300 flex items-center gap-1 truncate">
               <span id="user-display-name">...</span>
+              <span id="sync-status" class="text-[9px] text-slate-400" aria-live="polite"></span>
             </p>
           </div>
         </div>
@@ -124,18 +125,18 @@
       </div>
 
       <!-- أشرطة التبويب حسب صلاحية المستخدم -->
-      <nav id="main-nav-bar" class="grid grid-cols-3 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center">
-        <button id="tab-warehouse-btn" class="py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1">
+      <nav id="main-nav-bar" class="grid grid-cols-2 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center">
+        <button id="tab-warehouse-btn" class="hidden py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1">
           <span>🏬</span>
           <span>المخزن</span>
           <span id="warehouse-badge" class="hidden bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full">0</span>
         </button>
-        <button id="tab-purchasing-btn" class="py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white">
+        <button id="tab-purchasing-btn" class="hidden py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white">
           <span>🛒</span>
           <span>المشتريات</span>
           <span id="purchasing-badge" class="hidden bg-amber-500 text-slate-900 text-[10px] px-1.5 py-0.2 rounded-full font-extrabold">0</span>
         </button>
-        <button id="tab-archive-btn" class="py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white">
+        <button id="tab-archive-btn" class="hidden py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white">
           <span>📋</span>
           <span>السجل</span>
         </button>
@@ -184,8 +185,8 @@
           </h2>
           <form id="add-item-form" class="space-y-3">
             <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">اسم المادة / الصنف *</label>
-              <input type="text" id="item-name" list="common-items-list" required placeholder="مثال: حبوب بن، حليب، سيروب كراميل..." 
+              <label for="item-name" class="block text-xs font-semibold text-slate-600 mb-1">اسم المادة / الصنف *</label>
+          <input type="text" id="item-name" list="common-items-list" required placeholder="مثال: حبوب بن، حليب، سيروب كراميل..."
                      class="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-slate-50 focus:bg-white transition-all font-bold">
               <datalist id="common-items-list">
                 <option value="حبوب بن إسبريسو">
@@ -237,8 +238,8 @@
 
             <div class="grid grid-cols-2 gap-2">
               <div>
-                <label class="block text-xs font-semibold text-slate-600 mb-1">الكمية المطلوبة *</label>
-                <input type="number" id="item-quantity" min="0.01" step="any" value="1" required 
+                <label for="item-quantity" class="block text-xs font-semibold text-slate-600 mb-1">الكمية المطلوبة *</label>
+          <input type="number" id="item-quantity" min="0.01" step="any" value="1" required
                        class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-center font-bold">
               </div>
               <div>
@@ -257,8 +258,8 @@
             </div>
 
             <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">ملاحظة أو مواصفات (اختياري)</label>
-              <input type="text" id="item-notes" placeholder="مثال: أصلي، قياس خاص، مستعجل..." 
+              <label for="item-notes" class="block text-xs font-semibold text-slate-600 mb-1">ملاحظة أو مواصفات (اختياري)</label>
+          <input type="text" id="item-notes" placeholder="مثال: أصلي، قياس خاص، مستعجل..."
                      class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50">
             </div>
 
@@ -327,11 +328,14 @@
           </div>
           <span class="text-3xl">🛒</span>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-          <button id="notify-warehouse-btn" class="w-full py-2.5 bg-white text-blue-800 hover:bg-blue-50 font-bold rounded-xl text-xs shadow flex items-center justify-center gap-2 active:scale-[0.98] transition-all">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+          <button id="open-direct-purchase-btn" class="w-full py-2.5 bg-amber-400 hover:bg-amber-300 text-slate-900 font-black rounded-xl text-xs shadow flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all">
+            <span>✨🛒 شراء مباشر (مادة جديدة)</span>
+          </button>
+          <button id="notify-warehouse-btn" class="w-full py-2.5 bg-white text-blue-800 hover:bg-blue-50 font-bold rounded-xl text-xs shadow flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all">
             <span>📢 إشعار المخزن بأن المواد تم شراؤها</span>
           </button>
-          <button id="whatsapp-share-btn" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow flex items-center justify-center gap-2 active:scale-[0.98] transition-all">
+          <button id="whatsapp-share-btn" class="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl text-xs shadow flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all">
             <span>💬 مشاركة القائمة عبر WhatsApp</span>
           </button>
         </div>
@@ -375,9 +379,21 @@
           <p class="text-[11px] font-semibold text-rose-600">نواقص لم تجهز / غير متوفرة</p>
           <p id="stat-missing" class="text-xl font-black text-rose-600 mt-1">0</p>
         </div>
-        <div class="bg-white p-3.5 rounded-2xl border border-purple-200 shadow-sm text-center col-span-2 sm:col-span-4">
-          <p class="text-xs font-bold text-purple-700">مجموع مبالغ الشراء المسجلة (المصاريف الفعلية) 💰</p>
-          <p id="stat-expenses" class="text-2xl font-black text-purple-800 mt-1">0 د.ع</p>
+        <div class="bg-white p-3.5 rounded-2xl border border-purple-200 shadow-sm col-span-2 sm:col-span-4">
+          <div class="text-center mb-2">
+            <p class="text-xs font-bold text-purple-700">مجموع مبالغ الشراء المسجلة (المصاريف الفعلية) 💰</p>
+            <p id="stat-expenses" class="text-2xl font-black text-purple-800 mt-0.5">0 د.ع</p>
+          </div>
+          <div class="grid grid-cols-2 gap-2 pt-2 border-t border-purple-100 text-xs">
+            <div class="bg-emerald-50/80 p-2 rounded-xl text-center border border-emerald-100">
+              <span class="text-[11px] text-emerald-700 font-semibold block">💵 مدفوع نقداً</span>
+              <span id="stat-cash" class="text-sm font-black text-emerald-800">0 د.ع</span>
+            </div>
+            <div id="stat-debt-box" class="bg-amber-50/80 hover:bg-amber-100 p-2 rounded-xl text-center border border-amber-200 cursor-pointer transition-colors" title="اضغط لفتح كشف الديون">
+              <span class="text-[11px] text-amber-700 font-semibold block">⏳ متبقي ديون</span>
+              <span id="stat-debt" class="text-sm font-black text-amber-800">0 د.ع</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -393,6 +409,12 @@
             <span id="filters-badge" class="hidden w-2 h-2 rounded-full bg-emerald-600"></span>
           </button>
 
+          <button id="open-debt-list-btn" class="px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm whitespace-nowrap active:scale-95 transition-all" title="عرض وطباعة كشف الديون">
+            <span>💳</span>
+            <span>كشف الديون</span>
+            <span id="debt-count-badge" class="hidden bg-amber-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">0</span>
+          </button>
+
           <button id="toggle-analytics-btn" class="px-3 py-2.5 bg-white hover:bg-slate-50 text-purple-700 border border-purple-200 rounded-xl text-xs font-bold flex items-center gap-1 shadow-sm whitespace-nowrap active:scale-95 transition-all">
             <span>📈</span>
             <span>التحليلات</span>
@@ -405,7 +427,7 @@
 
           <button id="export-excel-btn" class="px-3 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow whitespace-nowrap active:scale-95 transition-all">
             <span>📊</span>
-            <span>إكسل</span>
+            <span dir="ltr">CSV</span>
           </button>
 
           <button onclick="window.print()" class="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow whitespace-nowrap active:scale-95 transition-all">
@@ -425,7 +447,7 @@
             </button>
           </div>
 
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
             <div>
               <label class="block text-[11px] font-semibold text-slate-500 mb-1">الحالة</label>
               <select id="filter-status" class="w-full p-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
@@ -435,6 +457,15 @@
                 <option value="partial">تم شراء جزء ⚠️</option>
                 <option value="unavailable">غير متوفرة / لم تجهز ❌</option>
                 <option value="pending">بانتظار الشراء ⏳</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 mb-1">طريقة الدفع</label>
+              <select id="filter-payment" class="w-full p-2 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
+                <option value="all">كافة الطرق</option>
+                <option value="debt">⏳ مسجل دين فقط</option>
+                <option value="cash">💵 مدفوع نقداً فقط</option>
               </select>
             </div>
 
@@ -449,13 +480,13 @@
             </div>
 
             <div>
-              <label class="block text-[11px] font-semibold text-slate-500 mb-1">من تاريخ</label>
-              <input type="date" id="filter-date-from" class="w-full p-1.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
+              <label for="filter-date-from" class="block text-[11px] font-semibold text-slate-500 mb-1">من تاريخ</label>
+          <input type="date" id="filter-date-from" class="w-full p-1.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
             </div>
 
             <div>
-              <label class="block text-[11px] font-semibold text-slate-500 mb-1">إلى تاريخ</label>
-              <input type="date" id="filter-date-to" class="w-full p-1.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
+              <label for="filter-date-to" class="block text-[11px] font-semibold text-slate-500 mb-1">إلى تاريخ</label>
+          <input type="date" id="filter-date-to" class="w-full p-1.5 rounded-xl border border-slate-300 bg-slate-50 text-xs font-semibold">
             </div>
           </div>
 
@@ -517,19 +548,19 @@
         </h3>
         <form id="add-user-form" class="space-y-3">
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">اسم الموظف الكامل *</label>
-            <input type="text" id="new-user-name" required placeholder="مثال: علي كريم" 
+            <label for="new-user-name" class="block text-xs font-semibold text-slate-600 mb-1">اسم الموظف الكامل *</label>
+          <input type="text" id="new-user-name" required placeholder="مثال: علي كريم"
                    class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-500">
           </div>
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">اسم المستخدم (للدخول) *</label>
-              <input type="text" id="new-user-username" required placeholder="مثال: ali" 
+              <label for="new-user-username" class="block text-xs font-semibold text-slate-600 mb-1">اسم المستخدم (للدخول) *</label>
+          <input type="text" id="new-user-username" required placeholder="مثال: ali"
                      class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-500 font-bold">
             </div>
             <div>
-              <label class="block text-xs font-semibold text-slate-600 mb-1">كلمة المرور / الرمز *</label>
-              <input type="text" id="new-user-password" required value="1234" 
+              <label for="new-user-password" class="block text-xs font-semibold text-slate-600 mb-1">كلمة المرور / الرمز *</label>
+          <input type="password" id="new-user-password" required minlength="8" autocomplete="new-password"
                      class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-purple-500 font-bold text-center">
             </div>
           </div>
@@ -558,7 +589,7 @@
   </main>
 
   <!-- Modal تفاعلي: تحديد شراء جزئي أو غير متوفر -->
-  <div id="purchase-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="purchase-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl w-full max-w-sm sm:max-w-md p-4 sm:p-6 shadow-2xl space-y-3 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b pb-2">
         <h3 id="modal-title" class="text-sm font-bold text-slate-800">تحديث حالة المادة</h3>
@@ -567,8 +598,8 @@
       <div id="modal-item-info" class="text-xs bg-slate-50 p-2.5 rounded-xl text-slate-700"></div>
 
       <div id="modal-partial-fields" class="space-y-2 hidden">
-        <label class="block text-xs font-semibold text-slate-600">الكمية التي تم شراؤها فعلياً</label>
-        <input type="number" id="modal-purchased-qty" min="0.01" step="any" 
+        <label for="modal-purchased-qty" class="block text-xs font-semibold text-slate-600">الكمية التي تم شراؤها فعلياً</label>
+          <input type="number" id="modal-purchased-qty" min="0.01" step="any"
                class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 text-center font-bold">
       </div>
 
@@ -588,14 +619,35 @@
 
       <!-- حقل المحل والمورد -->
       <div id="modal-supplier-fields" class="space-y-1">
-        <label class="block text-xs font-semibold text-slate-600">اسم المحل / المورد (اختياري)</label>
-        <input type="text" id="modal-purchased-supplier" list="common-suppliers-list" placeholder="مثال: جملة السنك، محل النور..." 
+        <label for="modal-purchased-supplier" class="block text-xs font-semibold text-slate-600">اسم المحل / المورد (اختياري)</label>
+          <input type="text" id="modal-purchased-supplier" list="common-suppliers-list" placeholder="مثال: جملة السنك، محل النور..."
                class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white transition-all">
       </div>
 
+      <!-- حقل طريقة الدفع: نقد أو دين -->
+      <div id="modal-payment-fields" class="space-y-1.5 pt-1">
+        <label class="block text-xs font-semibold text-slate-600">طريقة الدفع *</label>
+        <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+          <label class="cursor-pointer">
+            <input type="radio" name="modal-payment-method" value="cash" checked class="peer sr-only">
+            <div class="py-2.5 px-2 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+              <span>💵</span>
+              <span>مدفوع نقداً</span>
+            </div>
+          </label>
+          <label class="cursor-pointer">
+            <input type="radio" name="modal-payment-method" value="debt" class="peer sr-only">
+            <div class="py-2.5 px-2 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 peer-checked:bg-amber-600 peer-checked:text-white peer-checked:border-amber-600 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+              <span>⏳</span>
+              <span>مسجل دين</span>
+            </div>
+          </label>
+        </div>
+      </div>
+
       <div id="modal-reason-fields" class="space-y-2 hidden">
-        <label class="block text-xs font-semibold text-slate-600">سبب عدم التوفر / ملاحظة</label>
-        <input type="text" id="modal-missing-reason" placeholder="مثال: مقطوع من السوق، سعر مبالغ فيه..." 
+        <label for="modal-missing-reason" class="block text-xs font-semibold text-slate-600">سبب عدم التوفر / ملاحظة</label>
+          <input type="text" id="modal-missing-reason" placeholder="مثال: مقطوع من السوق، سعر مبالغ فيه..."
                class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300">
       </div>
 
@@ -610,8 +662,133 @@
     </div>
   </div>
 
+  <!-- Modal تفاعلي: شراء مباشر من السوق (مادة جديدة لم يذكرها المخزن) -->
+  <div id="direct-purchase-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-white rounded-3xl w-full max-w-sm sm:max-w-md p-4 sm:p-6 shadow-2xl space-y-3.5 max-h-[90vh] overflow-y-auto border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
+      <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+        <div class="flex items-center gap-2">
+          <span class="text-2xl">🛒</span>
+          <div>
+            <h3 class="text-sm font-bold text-slate-800">شراء مباشر من السوق</h3>
+            <p class="text-[11px] text-blue-600 font-semibold">تسجيل شراء مادة جديدة لم يذكرها المخزن</p>
+          </div>
+        </div>
+        <button id="direct-purchase-close-btn" type="button" class="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center rounded-xl hover:bg-slate-100 transition-all">✕</button>
+      </div>
+
+      <form id="direct-purchase-form" class="space-y-3">
+        <div>
+          <label for="direct-item-name" class="block text-xs font-bold text-slate-700 mb-1">اسم المادة المشتراة *</label>
+          <input type="text" id="direct-item-name" required list="common-items-list" placeholder="مثال: حليب مكثف، مناديل، بن..."
+                 class="w-full text-sm px-3.5 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold">
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">درجة الأهمية والاستعجال</label>
+          <div class="grid grid-cols-3 gap-1.5 text-xs font-bold">
+            <label class="cursor-pointer">
+              <input type="radio" name="direct-item-priority" value="normal" checked class="peer sr-only">
+              <div class="py-2 px-1 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 transition-all flex items-center justify-center gap-1 shadow-sm">
+                <span>🟢 عادي</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="direct-item-priority" value="urgent" class="peer sr-only">
+              <div class="py-2 px-1 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 peer-checked:bg-amber-500 peer-checked:text-white peer-checked:border-amber-500 transition-all flex items-center justify-center gap-1 shadow-sm">
+                <span>⚡ مهم</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="direct-item-priority" value="emergency" class="peer sr-only">
+              <div class="py-2 px-1 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 peer-checked:bg-rose-600 peer-checked:text-white peer-checked:border-rose-600 transition-all flex items-center justify-center gap-1 shadow-sm">
+                <span>🚨 طارئ 🔥</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label for="direct-item-quantity" class="block text-xs font-bold text-slate-700 mb-1">الكمية المشتراة *</label>
+          <input type="number" id="direct-item-quantity" min="0.01" step="any" required value="1"
+                   class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-center font-bold">
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">الوحدة</label>
+            <select id="direct-item-unit" class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 font-semibold">
+              <option value="قطعة">قطعة</option>
+              <option value="كرتون">كرتون</option>
+              <option value="كيس">كيس</option>
+              <option value="متر">متر</option>
+              <option value="كيلو">كيلو</option>
+              <option value="لتر">لتر</option>
+              <option value="طقم / سيت">طقم / سيت</option>
+              <option value="شدة">شدة</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1">سعر الشراء الإجمالي (د.ع)</label>
+            <div class="relative">
+              <input type="number" id="direct-item-price" min="0" step="250" placeholder="مثال: 25000"
+                     class="w-full text-sm px-3 py-2.5 pl-10 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-center font-bold">
+              <span class="absolute left-2.5 top-2.5 text-[11px] text-slate-400 font-bold">د.ع</span>
+            </div>
+          </div>
+          <div>
+            <label for="direct-item-supplier" class="block text-xs font-bold text-slate-700 mb-1">المحل / المورد</label>
+          <input type="text" id="direct-item-supplier" list="common-suppliers-list" placeholder="اسم المورد..."
+                   class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white font-semibold">
+          </div>
+        </div>
+
+        <!-- طريقة الدفع: نقد أو دين -->
+        <div class="space-y-1.5 pt-1">
+          <label class="block text-xs font-bold text-slate-700">طريقة الدفع *</label>
+          <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+            <label class="cursor-pointer">
+              <input type="radio" name="direct-payment-method" value="cash" checked class="peer sr-only">
+              <div class="py-2.5 px-2 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                <span>💵</span>
+                <span>مدفوع نقداً</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="direct-payment-method" value="debt" class="peer sr-only">
+              <div class="py-2.5 px-2 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 peer-checked:bg-amber-600 peer-checked:text-white peer-checked:border-amber-600 transition-all flex items-center justify-center gap-1.5 shadow-sm">
+                <span>⏳</span>
+                <span>مسجل دين</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div>
+          <label for="direct-item-notes" class="block text-xs font-semibold text-slate-600 mb-1">ملاحظات الشراء (اختياري)</label>
+          <input type="text" id="direct-item-notes" placeholder="مثال: شراء احتياطي، عرض خاص..."
+                 class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white">
+        </div>
+
+        <div class="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-[11px] text-blue-800">
+          💡 <b>ملاحظة:</b> بمجرد الحفظ، سيتم تسجيل المادة في المشتريات وإرسالها فوراً للمخزن لتظهر في قسم <b>(جاهزة للجرد والاستلام)</b> ليفحصها أمين المخزن ويؤكد استلامها.
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <button type="submit" id="direct-purchase-submit-btn" class="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow flex items-center justify-center gap-1 active:scale-[0.98] transition-all">
+            <span>✅ تأكيد وحفظ الشراء</span>
+          </button>
+          <button type="button" id="direct-purchase-cancel-btn" class="px-5 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs active:scale-[0.98] transition-all">
+            إلغاء
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Modal تفاعلي: جرد المخزن (تأكيد استلام أو تسجيل نقص) -->
-  <div id="inventory-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="inventory-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl w-full max-w-sm sm:max-w-md p-4 sm:p-6 shadow-2xl space-y-3 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b pb-2">
         <h3 class="text-sm font-bold text-slate-800">جرد واستلام المادة في المخزن</h3>
@@ -620,14 +797,14 @@
       <div id="inv-modal-item-info" class="text-xs bg-slate-50 p-2.5 rounded-xl text-slate-700"></div>
 
       <div class="space-y-2">
-        <label class="block text-xs font-semibold text-slate-600">الكمية المستلمة في المخزن</label>
-        <input type="number" id="inv-modal-received-qty" min="0" step="any" 
+        <label for="inv-modal-received-qty" class="block text-xs font-semibold text-slate-600">الكمية المستلمة في المخزن</label>
+          <input type="number" id="inv-modal-received-qty" min="0" step="any"
                class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 text-center font-bold">
       </div>
 
       <div class="space-y-2">
-        <label class="block text-xs font-semibold text-slate-600">ملاحظة الجرد إن وجدت</label>
-        <input type="text" id="inv-modal-notes" placeholder="مثال: مطابقة للمواصفات، متبقي 2 لم تجهز..." 
+        <label for="inv-modal-notes" class="block text-xs font-semibold text-slate-600">ملاحظة الجرد إن وجدت</label>
+          <input type="text" id="inv-modal-notes" placeholder="مثال: مطابقة للمواصفات، متبقي 2 لم تجهز..."
                class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300">
       </div>
 
@@ -643,7 +820,7 @@
   </div>
 
   <!-- Modal تفاعلي: تعديل المادة (الاسم والكمية والوحدة والملاحظات) -->
-  <div id="edit-item-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="edit-item-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl w-full max-w-sm sm:max-w-md p-4 sm:p-6 shadow-2xl space-y-3 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b pb-2">
         <h3 class="text-sm font-bold text-slate-800">تعديل بيانات المادة ✏️</h3>
@@ -652,7 +829,7 @@
 
       <form id="edit-item-form" class="space-y-3">
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-1">اسم المادة *</label>
+          <label for="edit-item-name" class="block text-xs font-semibold text-slate-600 mb-1">اسم المادة *</label>
           <input type="text" id="edit-item-name" required 
                  class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white font-bold">
         </div>
@@ -683,8 +860,8 @@
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">الكمية المطلوبة *</label>
-            <input type="number" id="edit-item-quantity" min="0.01" step="any" required 
+            <label for="edit-item-quantity" class="block text-xs font-semibold text-slate-600 mb-1">الكمية المطلوبة *</label>
+          <input type="number" id="edit-item-quantity" min="0.01" step="any" required
                    class="w-full text-sm px-3 py-2.5 rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-slate-50 focus:bg-white text-center font-bold">
           </div>
           <div>
@@ -704,21 +881,39 @@
 
         <div class="grid grid-cols-2 gap-2">
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">السعر المسجل (د.ع)</label>
-            <input type="number" id="edit-item-price" min="0" step="250" placeholder="0" 
+            <label for="edit-item-price" class="block text-xs font-semibold text-slate-600 mb-1">السعر المسجل (د.ع)</label>
+          <input type="number" id="edit-item-price" min="0" step="250" placeholder="0"
                    class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white text-center font-bold">
           </div>
           <div>
-            <label class="block text-xs font-semibold text-slate-600 mb-1">المحل / المورد</label>
-            <input type="text" id="edit-item-supplier" list="common-suppliers-list" placeholder="اسم المورد..." 
+            <label for="edit-item-supplier" class="block text-xs font-semibold text-slate-600 mb-1">المحل / المورد</label>
+          <input type="text" id="edit-item-supplier" list="common-suppliers-list" placeholder="اسم المورد..."
                    class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50 focus:bg-white">
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-1">الملاحظات</label>
+          <label for="edit-item-notes" class="block text-xs font-semibold text-slate-600 mb-1">الملاحظات</label>
           <input type="text" id="edit-item-notes" placeholder="ملاحظات..." 
                  class="w-full text-sm px-3 py-2 rounded-xl border border-slate-300 bg-slate-50">
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">طريقة الدفع (في حال تم الشراء)</label>
+          <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+            <label class="cursor-pointer">
+              <input type="radio" name="edit-item-payment-method" value="cash" checked class="peer sr-only">
+              <div class="py-2 px-1 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 peer-checked:bg-emerald-600 peer-checked:text-white peer-checked:border-emerald-600 transition-all flex items-center justify-center gap-1 shadow-sm">
+                <span>💵 نقد</span>
+              </div>
+            </label>
+            <label class="cursor-pointer">
+              <input type="radio" name="edit-item-payment-method" value="debt" class="peer sr-only">
+              <div class="py-2 px-1 text-center rounded-xl border border-slate-200 bg-slate-50 text-slate-700 peer-checked:bg-amber-600 peer-checked:text-white peer-checked:border-amber-600 transition-all flex items-center justify-center gap-1 shadow-sm">
+                <span>⏳ دين</span>
+              </div>
+            </label>
+          </div>
         </div>
 
         <div class="flex gap-2 pt-2">
@@ -735,7 +930,7 @@
   </div>
 
   <!-- ==================== Modal: تتبع ومسار حركة المادة (Audit Trail) ==================== -->
-  <div id="item-timeline-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="item-timeline-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-2xl w-full max-w-sm sm:max-w-md p-4 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between border-b pb-2">
         <div class="flex items-center gap-2">
@@ -757,7 +952,7 @@
   </div>
 
   <!-- ==================== Modal: سند استلام ومطابقة مشتريات رسمي للطباعة ==================== -->
-  <div id="voucher-print-modal" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 hidden">
+  <div id="voucher-print-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 hidden">
     <div class="bg-white rounded-2xl w-full max-w-3xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[95vh] overflow-y-auto">
       <!-- أزرار الإجراءات (تختفي عند الطباعة) -->
       <div class="flex items-center justify-between border-b pb-2 no-print">
@@ -766,7 +961,7 @@
           <span>معاينة وطباعة سند استلام المشتريات</span>
         </h3>
         <div class="flex items-center gap-2">
-          <button onclick="window.print()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow active:scale-95 transition-all">
+          <button onclick="printVoucher()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow active:scale-95 transition-all">
             <span>🖨️ طباعة السند</span>
           </button>
           <button id="voucher-close-btn" class="text-slate-400 hover:text-slate-600 text-xl font-bold w-8 h-8 flex items-center justify-center">✕</button>
@@ -780,7 +975,7 @@
           <div class="flex items-center justify-between gap-4">
             <!-- الشعار واسم المقهى -->
             <div class="flex items-center gap-3">
-              <img src="/logo.jpg" alt="شعار مقهى منخل" class="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover border-2 border-slate-800 shadow-sm">
+              <img src="logo.jpg" alt="شعار مقهى منخل" class="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover border-2 border-slate-800 shadow-sm">
               <div>
                 <h2 class="text-xl sm:text-2xl font-black tracking-wide text-slate-900">مقهى منخل</h2>
                 <p class="text-xs text-slate-600 font-bold font-mono">MANKHUL CAFE</p>
@@ -794,7 +989,7 @@
               <div class="text-[11px] text-slate-700 font-mono space-y-0.5 pt-1">
                 <div>رقم السند: <b id="voucher-number" class="text-slate-900 font-black">MN-0000</b></div>
                 <div>التاريخ: <b id="voucher-date" class="text-slate-900 font-bold"></b></div>
-                <div>الحالة: <b class="text-emerald-700 font-bold">معتمدة ومستلمة ✓</b></div>
+                <div>الحالة: <b id="voucher-status" class="text-emerald-700 font-bold">بحسب السجل</b></div>
               </div>
             </div>
           </div>
@@ -851,8 +1046,132 @@
     </div>
   </div>
 
+  <!-- Modal تفاعلي: كشف ديون المشتريات والموردين القابل للطباعة والتسديد -->
+  <div id="debt-list-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-2 sm:p-4 hidden">
+    <div class="bg-white rounded-3xl w-full max-w-4xl p-4 sm:p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
+
+      <!-- شريط رأس النافذة (غير مطبوع) -->
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100 no-print">
+        <div class="flex items-center gap-2.5">
+          <span class="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center text-xl shadow-xs">💳</span>
+          <div>
+            <h3 class="text-sm font-black text-slate-800">كشف ديون المشتريات والموردين</h3>
+            <p class="text-[11px] text-slate-500 font-semibold">متابعة وتسديد المبالغ والوصولات المسجلة كديون معلقة</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="debt-export-excel-btn" type="button" class="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-xs flex items-center gap-1 shadow active:scale-95 transition-all">
+            <span>📊</span>
+            <span dir="ltr">CSV</span>
+          </button>
+          <button id="debt-print-btn" type="button" class="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow active:scale-95 transition-all">
+            <span>🖨️</span>
+            <span>طباعة الكشف</span>
+          </button>
+          <button id="debt-modal-close-btn" type="button" class="text-slate-400 hover:text-slate-600 text-xl font-bold w-9 h-9 flex items-center justify-center rounded-xl hover:bg-slate-100 transition-all">✕</button>
+        </div>
+      </div>
+
+      <!-- بطاقات الملخص السريع وفلتر المورد (غير مطبوع) -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 no-print">
+        <div class="bg-amber-50/80 p-3 rounded-2xl border border-amber-200 text-center">
+          <p id="debt-modal-total-sum-title" class="text-[11px] font-bold text-amber-800">إجمالي الديون المعلقة</p>
+          <p id="debt-modal-total-sum" class="text-xl font-black text-amber-900 mt-0.5">0 د.ع</p>
+        </div>
+        <div class="bg-slate-50 p-3 rounded-2xl border border-slate-200 text-center">
+          <p id="debt-modal-total-count-title" class="text-[11px] font-bold text-slate-600">عدد المواد المسجلة دين</p>
+          <p id="debt-modal-total-count" class="text-xl font-black text-slate-800 mt-0.5">0</p>
+        </div>
+        <div class="bg-slate-50 p-2.5 rounded-2xl border border-slate-200 flex flex-col justify-center">
+          <label class="block text-[11px] font-bold text-slate-600 mb-1">تصفية حسب المورد:</label>
+          <select id="debt-supplier-filter" class="w-full p-1.5 rounded-xl border border-slate-300 text-xs font-semibold bg-white">
+            <option value="all">كافة الموردين والمحلات</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- محتوى الكشف الرسمي القابل للطباعة الورقية والحفظ -->
+      <div id="printable-debt-content" class="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200 space-y-4">
+
+        <!-- الترويسة الرسمية لكشف الديون -->
+        <div class="border-b-2 border-slate-900 pb-4">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <img src="logo.jpg" alt="شعار مقهى منخل" class="w-14 h-14 sm:w-16 sm:h-16 rounded-xl object-cover border-2 border-slate-800 shadow-sm">
+              <div>
+                <h2 class="text-xl sm:text-2xl font-black text-slate-900 tracking-wide">مقهى منخل</h2>
+                <p class="text-xs text-slate-600 font-bold font-mono">MANKHUL CAFE</p>
+                <p class="text-[11px] text-slate-500 font-semibold">قسم المشتريات والحسابات</p>
+              </div>
+            </div>
+
+            <div class="text-left space-y-1">
+              <span id="debt-statement-badge" class="inline-block px-3 py-1 bg-amber-600 text-white text-xs font-black rounded-lg">كشف حساب ديون المشتريات المعلقة</span>
+              <div id="debt-statement-supplier-box" class="hidden text-xs font-black text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded border border-amber-300">
+                المورد الدائن: <span id="debt-statement-supplier-name"></span>
+              </div>
+              <div class="text-[11px] text-slate-700 font-mono space-y-0.5 pt-1">
+                <div>التاريخ: <b id="debt-statement-date" class="text-slate-900 font-bold"></b></div>
+                <div>الحالة: <b class="text-amber-800 font-bold">ذمم ومبالغ آجلة ⏳</b></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- جدول مواد الديون -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs text-right border-collapse border border-slate-300">
+            <thead>
+              <tr class="bg-slate-100 font-bold border-b border-slate-300 text-slate-800">
+                <th class="p-2 border border-slate-300 w-8 text-center">ت</th>
+                <th class="p-2 border border-slate-300">المادة</th>
+                <th class="p-2 border border-slate-300 text-center">الكمية</th>
+                <th class="p-2 border border-slate-300">المحل / المورد الدائن</th>
+                <th class="p-2 border border-slate-300 text-center">مبلغ الدين (د.ع)</th>
+                <th class="p-2 border border-slate-300">المشتري</th>
+                <th class="p-2 border border-slate-300 text-center">تاريخ التسجيل</th>
+                <th class="p-2 border border-slate-300 text-center no-print">إجراء</th>
+              </tr>
+            </thead>
+            <tbody id="debt-items-tbody"></tbody>
+            <tfoot>
+              <tr class="font-bold bg-amber-50/70 border-t-2 border-slate-800">
+                <td id="debt-table-total-label" colspan="4" class="p-2.5 border border-slate-300 text-center font-black text-sm">مجموع مبالغ الديون الكلي</td>
+                <td id="debt-table-total-amount" class="p-2.5 border border-slate-300 text-center text-amber-900 font-black text-sm">0 د.ع</td>
+                <td colspan="3" class="p-2.5 border border-slate-300 text-center text-slate-500 font-semibold no-print"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <!-- تفقيط مبلغ الدين كتابة -->
+        <div class="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs">
+          <span class="font-bold">المبلغ الإجمالي كتابة: </span>
+          <span id="debt-amount-words" class="font-semibold text-slate-700"></span>
+        </div>
+
+        <!-- تواقيع الاعتماد والتدقيق -->
+        <div class="grid grid-cols-3 gap-3 pt-6 text-center text-xs font-bold text-slate-800">
+          <div class="space-y-8">
+            <p>توقيع مسؤول المشتريات</p>
+            <div class="border-b border-dotted border-slate-500 w-32 mx-auto"></div>
+          </div>
+          <div class="space-y-8">
+            <p>توقيع المحاسب / التدقيق المالي</p>
+            <div class="border-b border-dotted border-slate-500 w-32 mx-auto"></div>
+          </div>
+          <div class="space-y-8">
+            <p>مصادقة الإدارة العامة</p>
+            <div class="border-b border-dotted border-slate-500 w-32 mx-auto"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <!-- نافذة تغيير رمز الدخول للموظف -->
-  <div id="change-password-modal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+  <div id="change-password-modal" role="dialog" aria-modal="true" aria-label="نافذة تفاصيل وإجراءات" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
     <div class="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl space-y-4 border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
       <div class="flex items-center justify-between pb-2 border-b border-slate-100">
         <div class="flex items-center gap-2">
@@ -870,7 +1189,7 @@
         <div>
           <label class="block text-xs font-bold text-slate-700 mb-1">رمز الدخول / كلمة المرور الجديدة:</label>
           <div class="relative">
-            <input type="text" id="change-pass-input" required autocomplete="off" placeholder="اكتب الرمز الجديد هنا..."
+            <input type="password" id="change-pass-input" required minlength="8" autocomplete="new-password" placeholder="اكتب الرمز الجديد هنا..."
                    class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all text-center tracking-wider">
           </div>
           <p class="text-[10px] text-slate-400 mt-1">💡 اكتب الرمز الذي تريده للموظف واضغط حفظ (لن يظهر الرمز القديم تلقائياً).</p>
@@ -891,6 +1210,8 @@
   <!-- قوائم الاقتراحات السريعة للموردين والمحلات -->
   <datalist id="common-suppliers-list"></datalist>
 
-  <script src="app.js?v=2.2"></script>
+  <script src="config.js?v=3.1"></script>
+  <script src="helpers.js?v=3.1"></script>
+  <script src="app.js?v=3.1"></script>
 </body>
 </html>

@@ -3,3 +3,11 @@ node_modules/
 *.log
 cloudflared.exe
 *.bak
+data/
+.wrangler/
+*.tmp
+review-report/local-runtime/
+.env
+.env.*
+.dev.vars
+.dev.vars.*

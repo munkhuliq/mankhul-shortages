@@ -4,9 +4,12 @@
 
 // حالة المستخدم والجلسة
 let currentUser = null;
+let sessionToken = null;
 try {
   const saved = localStorage.getItem('mankhul_user');
-  if (saved) currentUser = JSON.parse(saved);
+  sessionToken = localStorage.getItem('mankhul_token');
+  if (saved && sessionToken && /^[a-f0-9]{64}$/.test(sessionToken)) currentUser = JSON.parse(saved);
+  else sessionToken = null;
 } catch (e) {
   currentUser = null;
 }
@@ -166,6 +169,12 @@ const elements = {
   statPending: document.getElementById('stat-pending'),
   statMissing: document.getElementById('stat-missing'),
   statExpenses: document.getElementById('stat-expenses'),
+  statCash: document.getElementById('stat-cash'),
+  statDebt: document.getElementById('stat-debt'),
+  statDebtBox: document.getElementById('stat-debt-box'),
+  openDebtListBtn: document.getElementById('open-debt-list-btn'),
+  debtCountBadge: document.getElementById('debt-count-badge'),
+  filterPayment: document.getElementById('filter-payment'),
 
   // عناصر لوحة تحكم المدير
   addUserForm: document.getElementById('add-user-form'),
@@ -245,6 +254,39 @@ const elements = {
   changePassCancelBtn: document.getElementById('change-pass-cancel-btn'),
   changePassCloseBtn: document.getElementById('change-pass-close-btn'),
   changePasswordForm: document.getElementById('change-password-form'),
+  // نافذة كشف الديون والطباعة
+  debtListModal: document.getElementById('debt-list-modal'),
+  debtModalCloseBtn: document.getElementById('debt-modal-close-btn'),
+  debtPrintBtn: document.getElementById('debt-print-btn'),
+  debtExportExcelBtn: document.getElementById('debt-export-excel-btn'),
+  debtModalTotalSum: document.getElementById('debt-modal-total-sum'),
+  debtModalTotalCount: document.getElementById('debt-modal-total-count'),
+  debtModalTotalSumTitle: document.getElementById('debt-modal-total-sum-title'),
+  debtModalTotalCountTitle: document.getElementById('debt-modal-total-count-title'),
+  debtSupplierFilter: document.getElementById('debt-supplier-filter'),
+  debtStatementDate: document.getElementById('debt-statement-date'),
+  debtStatementBadge: document.getElementById('debt-statement-badge'),
+  debtStatementSupplierBox: document.getElementById('debt-statement-supplier-box'),
+  debtStatementSupplierName: document.getElementById('debt-statement-supplier-name'),
+  debtItemsTbody: document.getElementById('debt-items-tbody'),
+  debtTableTotalAmount: document.getElementById('debt-table-total-amount'),
+  debtTableTotalLabel: document.getElementById('debt-table-total-label'),
+  debtAmountWords: document.getElementById('debt-amount-words'),
+  modalPaymentFields: document.getElementById('modal-payment-fields'),
+
+  // نافذة الشراء المباشر (مادة لم يذكرها المخزن)
+  openDirectPurchaseBtn: document.getElementById('open-direct-purchase-btn'),
+  directPurchaseModal: document.getElementById('direct-purchase-modal'),
+  directPurchaseForm: document.getElementById('direct-purchase-form'),
+  directPurchaseCloseBtn: document.getElementById('direct-purchase-close-btn'),
+  directPurchaseCancelBtn: document.getElementById('direct-purchase-cancel-btn'),
+  directPurchaseSubmitBtn: document.getElementById('direct-purchase-submit-btn'),
+  directItemName: document.getElementById('direct-item-name'),
+  directItemQuantity: document.getElementById('direct-item-quantity'),
+  directItemUnit: document.getElementById('direct-item-unit'),
+  directItemPrice: document.getElementById('direct-item-price'),
+  directItemSupplier: document.getElementById('direct-item-supplier'),
+  directItemNotes: document.getElementById('direct-item-notes'),
 
   toastContainer: document.getElementById('toast-container')
 };
@@ -253,6 +295,9 @@ const elements = {
 let currentModalAction = null;
 let currentModalItem = null;
 let editingItemId = null;
+let editingItemVersion = 0;
+let isFetchingItems = false;
+let lastItemsJson = '';
 
 // ==========================================
 // دوال الطلبات مع الترويسة الأمنية للمستخدم
@@ -260,7 +305,7 @@ let editingItemId = null;
 function authHeaders() {
   const headers = { 'Content-Type': 'application/json' };
   if (currentUser && currentUser.id) {
-    headers['x-user-id'] = currentUser.id;
+    if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
   }
   return headers;
 }
@@ -268,6 +313,16 @@ function authHeaders() {
 // ==========================================
 // إدارة تسجيل الدخول والخروج
 // ==========================================
+async function apiFetch(url, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  const usedToken = sessionToken;
+  try {
+    const res = await fetch((window.MANKHUL_API_BASE || '') + url, { ...options, signal: controller.signal });
+    if (res.status === 401 && !url.includes('/auth/login') && usedToken === sessionToken && sessionToken) clearSession();
+    return res;
+  } finally { clearTimeout(timeout); }
+}
 window.quickFillLogin = function(u) {
   if (elements.loginUsername) elements.loginUsername.value = u;
   if (elements.loginPassword) {
@@ -280,17 +335,22 @@ window.quickFillLogin = function(u) {
 elements.loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const username = elements.loginUsername.value.trim();
-  const password = elements.loginPassword.value.trim();
+  const password = elements.loginPassword.value;
   elements.loginError.classList.add('hidden');
 
   try {
-    const res = await fetch('/api/auth/login', {
+    const res = await apiFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
     const data = await res.json();
     if (data.success && data.user) {
+      sessionToken = data.token;
+      localStorage.setItem('mankhul_token', sessionToken);
+      seenNotificationIds.clear();
+      hasLoadedInitialNotifs = false;
+      connectSocket();
       currentUser = data.user;
       window.currentUser = currentUser;
       localStorage.setItem('mankhul_user', JSON.stringify(currentUser));
@@ -311,20 +371,46 @@ elements.loginForm.addEventListener('submit', async (e) => {
   }
 });
 
-elements.logoutBtn.addEventListener('click', () => {
-  if (!confirm('هل تريد بالتأكيد تسجيل الخروج؟')) return;
+function clearSession() {
   currentUser = null;
+  sessionToken = null;
   window.currentUser = null;
   localStorage.removeItem('mankhul_user');
-  elements.loginUsername.value = '';
-  elements.loginPassword.value = '';
-  elements.loginScreen.classList.remove('hidden');
+  localStorage.removeItem('mankhul_token');
+  if (socket) socket.disconnect();
+  itemsData = []; usersData = []; lastItemsJson = '';
+  seenNotificationIds.clear(); hasLoadedInitialNotifs = false;
+  currentModalItem = null; editingItemId = null;
+  elements.userDisplayName.textContent = '';
+  elements.userRoleBadge.textContent = '';
+  for (const modal of document.querySelectorAll('[role="dialog"]')) modal.classList.add('hidden');
+  if (elements.adminUsersList) elements.adminUsersList.innerHTML = '';
+  renderAll();
+  applyUserRole(false);
+}
+
+elements.logoutBtn.addEventListener('click', async () => {
+  if (!confirm('هل تريد بالتأكيد تسجيل الخروج؟')) return;
+  try {
+    const res = await apiFetch('/api/auth/logout', { method: 'POST', headers: authHeaders() });
+    if (!res.ok) throw new Error('logout failed');
+    clearSession();
+    elements.loginUsername.value = '';
+    elements.loginPassword.value = '';
+  } catch {
+    showToast('تعذر تسجيل الخروج', 'تحقق من الاتصال وأعد المحاولة لإبطال الجلسة بأمان', '⚠️', 'rose');
+  }
 });
 
 // تطبيق صلاحيات المستخدم النشط
 function applyUserRole(keepCurrentTab = false) {
   if (!currentUser) {
+    for (const view of [elements.warehouseView, elements.purchasingView, elements.archiveView, elements.adminView]) view.classList.add('hidden');
     elements.loginScreen.classList.remove('hidden');
+    elements.tabWarehouseBtn.classList.add('hidden');
+    elements.tabPurchasingBtn.classList.add('hidden');
+    elements.tabArchiveBtn.classList.add('hidden');
+    elements.tabAdminBtn.classList.add('hidden');
     return;
   }
 
@@ -332,9 +418,9 @@ function applyUserRole(keepCurrentTab = false) {
   elements.userDisplayName.textContent = currentUser.name;
 
   const roleLabels = {
-    admin: 'مدير عام 👔',
-    warehouse: 'موظف المخزن 🏬',
-    purchasing: 'موظف المشتريات 🛒'
+    admin: 'المدير العام 👔',
+    warehouse: 'مدير المخزن 🏬',
+    purchasing: 'مدير المشتريات 🛒'
   };
   const roleBadges = {
     admin: 'bg-purple-600',
@@ -345,10 +431,10 @@ function applyUserRole(keepCurrentTab = false) {
   elements.userRoleBadge.textContent = roleLabels[currentUser.role] || 'موظف';
   elements.userRoleBadge.className = `px-2 py-0.5 rounded text-[10px] text-white font-bold ${roleBadges[currentUser.role] || 'bg-slate-700'}`;
 
-  // تعديل شريط التنقل حسب الدور
+  // تعديل شريط التنقل وتأمين الشاشات حسب الصلاحية بدقة صارمة
   let defaultTab = 'warehouse';
   if (currentUser.role === 'admin') {
-    // المدير يرى كل شيء: المخزن، المشتريات، السجل، والموظفين
+    // المدير العام يرى كافة الأقسام (المخزن، المشتريات، السجل، الموظفين)
     elements.mainNavBar.className = 'grid grid-cols-4 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
     elements.tabWarehouseBtn.classList.remove('hidden');
     elements.tabPurchasingBtn.classList.remove('hidden');
@@ -356,7 +442,7 @@ function applyUserRole(keepCurrentTab = false) {
     elements.tabAdminBtn.classList.remove('hidden');
     defaultTab = 'warehouse';
   } else if (currentUser.role === 'warehouse') {
-    // موظف المخزن يرى المخزن والسجل فقط
+    // مدير المخزن يرى المخزن والسجل فقط، وتختفي المشتريات والموظفين تماماً
     elements.mainNavBar.className = 'grid grid-cols-2 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
     elements.tabWarehouseBtn.classList.remove('hidden');
     elements.tabPurchasingBtn.classList.add('hidden');
@@ -364,7 +450,7 @@ function applyUserRole(keepCurrentTab = false) {
     elements.tabAdminBtn.classList.add('hidden');
     defaultTab = 'warehouse';
   } else if (currentUser.role === 'purchasing') {
-    // موظف المشتريات يرى المشتريات والسجل فقط
+    // مدير المشتريات يرى المشتريات والسجل فقط، ويختفي المخزن والموظفين تماماً
     elements.mainNavBar.className = 'grid grid-cols-2 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
     elements.tabWarehouseBtn.classList.add('hidden');
     elements.tabPurchasingBtn.classList.remove('hidden');
@@ -373,7 +459,16 @@ function applyUserRole(keepCurrentTab = false) {
     defaultTab = 'purchasing';
   }
 
-  const targetTab = (keepCurrentTab && currentTab) ? currentTab : defaultTab;
+  // التأكد من أن التبويب المطلوب مصرح به للمستخدم
+  let targetTab = (keepCurrentTab && currentTab) ? currentTab : defaultTab;
+  if (currentUser.role === 'warehouse' && targetTab !== 'warehouse' && targetTab !== 'archive') {
+    targetTab = 'warehouse';
+  } else if (currentUser.role === 'purchasing' && targetTab !== 'purchasing' && targetTab !== 'archive') {
+    targetTab = 'purchasing';
+  } else if (currentUser.role !== 'admin' && targetTab === 'admin') {
+    targetTab = 'archive';
+  }
+
   switchTab(targetTab);
 }
 
@@ -383,7 +478,7 @@ function applyUserRole(keepCurrentTab = false) {
 function switchTab(tab) {
   if (!currentUser) return;
 
-  // حماية وتأمين الصلاحيات: كل موظف يرى شاشاته المصرح بها فقط
+  // حماية وتأمين الصلاحيات: كل مستخدم يرى شاشاته المصرح بها فقط
   if (currentUser.role === 'warehouse') {
     if (tab !== 'warehouse' && tab !== 'archive') tab = 'warehouse';
   } else if (currentUser.role === 'purchasing') {
@@ -409,13 +504,15 @@ function switchTab(tab) {
 
     if (isHidden) {
       btn.className = 'hidden';
+      btn.classList.add('hidden');
       return;
     }
 
+    btn.classList.remove('hidden');
     if (isActive) {
-      btn.className = `py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 ${activeColor} text-white shadow font-bold`;
+      btn.className = `py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 ${activeColor} text-white shadow font-bold`;
     } else {
-      btn.className = 'py-2 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white';
+      btn.className = 'py-2.5 px-1 rounded-lg transition-all flex items-center justify-center gap-1 text-slate-300 hover:text-white';
     }
   };
 
@@ -423,6 +520,13 @@ function switchTab(tab) {
   updateTabButtonState(elements.tabPurchasingBtn, tab === 'purchasing', 'bg-blue-600');
   updateTabButtonState(elements.tabArchiveBtn, tab === 'archive', 'bg-slate-700');
   updateTabButtonState(elements.tabAdminBtn, tab === 'admin', 'bg-purple-600');
+
+  // تأكيد شبكة شريط التنقل
+  if (currentUser.role === 'admin') {
+    elements.mainNavBar.className = 'grid grid-cols-4 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
+  } else {
+    elements.mainNavBar.className = 'grid grid-cols-2 gap-1 bg-slate-800/90 p-1 rounded-xl text-xs font-bold text-center';
+  }
 
   if (tab === 'warehouse') {
     elements.warehouseView.classList.remove('hidden');
@@ -531,10 +635,10 @@ function showToast(title, message, icon = '🔔', color = 'emerald') {
 
     toast.className = `toast-anim ${bg} text-white px-4 py-3 rounded-2xl shadow-xl flex items-start gap-3 border border-white/20 pointer-events-auto`;
     toast.innerHTML = `
-      <span class="text-xl">${icon}</span>
+      <span class="text-xl">${escapeHtml(icon)}</span>
       <div class="flex-1">
-        <h4 class="font-bold text-xs">${title}</h4>
-        <p class="text-[11px] text-white/90 mt-0.5">${message}</p>
+        <h4 class="font-bold text-xs">${escapeHtml(title)}</h4>
+        <p class="text-[11px] text-white/90 mt-0.5">${escapeHtml(message)}</p>
       </div>
       <button class="text-white/60 hover:text-white text-xs font-bold" onclick="this.parentElement.remove()">✕</button>
     `;
@@ -558,10 +662,16 @@ function showToast(title, message, icon = '🔔', color = 'emerald') {
     // التحقق الآمن من دعم وتصريح إشعارات النظام بالهواتف والمتصفحات
     try {
       if (typeof window !== 'undefined' && 'Notification' in window && window.Notification && window.Notification.permission === 'granted') {
-        new window.Notification(title, { body: message });
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(reg => {
+            reg.showNotification(title, { body: message, icon: new URL('logo.jpg', document.baseURI).href, badge: new URL('logo.jpg', document.baseURI).href });
+          }).catch(() => {});
+        } else {
+          new window.Notification(title, { body: message, icon: new URL('logo.jpg', document.baseURI).href });
+        }
       }
     } catch (nErr) {
-      // تجاهل أخطاء الهواتف (مثل أندرويد كروم التي تشترط Service Worker)
+      // تجاهل أخطاء الهواتف
     }
   } catch (err) {
     console.warn('showToast error handled gracefully:', err);
@@ -580,7 +690,7 @@ function handleIncomingNotifications(notifications) {
     if (!seenNotificationIds.has(n.id)) {
       seenNotificationIds.add(n.id);
       if (hasLoadedInitialNotifs) {
-        if (currentUser.role === n.targetRole || currentUser.role === 'admin') {
+        if (n.targetRole === 'all' || currentUser.role === n.targetRole || currentUser.role === 'admin') {
           playNotificationSound(n.targetRole === 'warehouse' ? 'alert' : 'chime');
           showToast(n.title, n.body, n.targetRole === 'warehouse' ? '🚚' : '📦', n.targetRole === 'warehouse' ? 'amber' : 'blue');
         }
@@ -591,26 +701,38 @@ function handleIncomingNotifications(notifications) {
 }
 
 async function fetchItems() {
+  if (!currentUser || !sessionToken || isFetchingItems) return;
+  isFetchingItems = true;
+  const usedToken = sessionToken;
   try {
-    const res = await fetch('/api/items', { headers: authHeaders() });
+    const res = await apiFetch('/api/items', { headers: authHeaders() });
     const data = await res.json();
-    if (data.success) {
+    if (usedToken !== sessionToken) return;
+    if (!res.ok || !data.success) throw new Error(data.error || 'sync failed');
+    handleIncomingNotifications(data.notifications);
+    const nextJson = JSON.stringify(data.items || []);
+    if (nextJson !== lastItemsJson) {
+      lastItemsJson = nextJson;
       itemsData = data.items || [];
-      handleIncomingNotifications(data.notifications);
       renderAll();
+      if (elements.debtListModal && !elements.debtListModal.classList.contains('hidden')) renderDebtTable();
     }
+    const status = document.getElementById('sync-status');
+    if (status) status.textContent = 'متصل — البيانات محدثة';
   } catch (err) {
-    console.error('Error fetching items:', err);
-  }
+    const status = document.getElementById('sync-status');
+    if (status && usedToken === sessionToken) status.textContent = 'تعذر التحديث — تحقق من الاتصال';
+  } finally { isFetchingItems = false; }
 }
 
 // جلب المستخدمين (للمدير)
 async function fetchAdminUsers() {
   if (!currentUser || currentUser.role !== 'admin') return;
+  const usedToken = sessionToken;
   try {
-    const res = await fetch('/api/admin/users', { headers: authHeaders() });
+    const res = await apiFetch('/api/admin/users', { headers: authHeaders() });
     const data = await res.json();
-    if (data.success) {
+    if (data.success && usedToken === sessionToken && currentUser?.role === 'admin') {
       usersData = data.users || [];
       renderAdminUsers();
     }
@@ -628,7 +750,7 @@ function getLastPurchaseInfo(itemName) {
   const matches = itemsData.filter(i => 
     i.name && i.name.trim().toLowerCase() === clean && 
     (Number(i.price) > 0 || i.supplier) &&
-    (i.status === 'purchased' || i.status === 'partial' || i.status === 'completed')
+    Mankhul.hasPurchase(i)
   );
   if (matches.length === 0) return null;
   matches.sort((a, b) => new Date(b.purchasedAt || b.createdAt) - new Date(a.purchasedAt || a.createdAt));
@@ -655,7 +777,8 @@ function updateSuppliersList() {
 
 // تفقيط مبالغ الدينار العراقي رسمياً للوصولات
 function tafqeetIQD(num) {
-  if (!num || num <= 0) return 'صفر دينار عراقي';
+  const intNum = Math.max(0, Math.round(Number(num) || 0));
+  if (intNum <= 0) return 'صفر دينار عراقي';
   const units = ['', 'واحد', 'اثنان', 'ثلاثة', 'أربعة', 'خمسة', 'ستة', 'سبعة', 'ثمانية', 'تسعة'];
   const teens = ['عشرة', 'أحد عشر', 'اثنا عشر', 'ثلاثة عشر', 'أربعة عشر', 'خمسة عشر', 'ستة عشر', 'سبعة عشر', 'ثمانية عشر', 'تسعة عشر'];
   const tens = ['', '', 'عشرون', 'ثلاثون', 'أربعون', 'خمسون', 'ستون', 'سبعون', 'ثمانون', 'تسعون'];
@@ -680,15 +803,23 @@ function tafqeetIQD(num) {
     return res;
   }
 
-  const millions = Math.floor(num / 1000000);
-  const thousands = Math.floor((num % 1000000) / 1000);
-  const remainder = num % 1000;
+  const billions = Math.floor(intNum / 1000000000);
+  const millions = Math.floor((intNum % 1000000000) / 1000000);
+  const thousands = Math.floor((intNum % 1000000) / 1000);
+  const remainder = intNum % 1000;
 
   const parts = [];
+  if (billions > 0) {
+    if (billions === 1) parts.push('مليار');
+    else if (billions === 2) parts.push('ملياران');
+    else if (billions >= 3 && billions <= 10) parts.push(convertChunk(billions) + ' مليارات');
+    else parts.push(convertChunk(billions) + ' مليار');
+  }
   if (millions > 0) {
     if (millions === 1) parts.push('مليون');
     else if (millions === 2) parts.push('مليونان');
-    else parts.push(convertChunk(millions) + ' ملايين');
+    else if (millions >= 3 && millions <= 10) parts.push(convertChunk(millions) + ' ملايين');
+    else parts.push(convertChunk(millions) + ' مليون');
   }
   if (thousands > 0) {
     if (thousands === 1) parts.push('ألف');
@@ -705,9 +836,11 @@ function tafqeetIQD(num) {
 
 // متغيرات الفلاتر المتقدمة
 let filterStatusVal = 'all';
+let filterPaymentVal = 'all';
 let filterPriorityVal = 'all';
 let filterDateFromVal = '';
 let filterDateToVal = '';
+let debtSupplierFilterVal = 'all';
 
 function getFilteredArchiveItems() {
   const searchTerm = (elements.archiveSearch ? elements.archiveSearch.value || '' : '').trim().toLowerCase();
@@ -719,12 +852,20 @@ function getFilteredArchiveItems() {
       const matchReason = item.missingReason && item.missingReason.toLowerCase().includes(searchTerm);
       const matchSupplier = item.supplier && item.supplier.toLowerCase().includes(searchTerm);
       const matchBuyer = item.purchasedBy && item.purchasedBy.name && item.purchasedBy.name.toLowerCase().includes(searchTerm);
-      if (!matchName && !matchNotes && !matchReason && !matchSupplier && !matchBuyer) return false;
+      const matchCreator = item.createdBy && item.createdBy.name && item.createdBy.name.toLowerCase().includes(searchTerm);
+      const matchPrice = item.price && String(item.price).includes(searchTerm);
+      if (!matchName && !matchNotes && !matchReason && !matchSupplier && !matchBuyer && !matchCreator && !matchPrice) return false;
     }
 
     // 2. فلتر الحالة
     if (filterStatusVal !== 'all' && item.status !== filterStatusVal) {
       return false;
+    }
+
+    // 2.5 فلتر طريقة الدفع (نقد / دين)
+    if (filterPaymentVal !== 'all') {
+      const pm = item.paymentMethod || 'cash';
+      if (pm !== filterPaymentVal) return false;
     }
 
     // 3. فلتر درجة الأهمية
@@ -821,12 +962,35 @@ function updateBadges() {
   elements.statMissing.textContent = unavailable;
 
   // المصاريف الفعلية: تشمل فقط المواد التي تم شراؤها أو اكتملت
-  const totalExpenses = itemsData
-    .filter(i => ['purchased', 'partial', 'completed'].includes(i.status))
+  const purchasedItems = itemsData.filter(i => Mankhul.hasPurchase(i));
+  const totalExpenses = purchasedItems
+    .reduce((sum, i) => sum + parseCleanNumber(i.price, 0, true), 0);
+
+  const totalCash = purchasedItems
+    .filter(i => (i.paymentMethod || 'cash') === 'cash')
+    .reduce((sum, i) => sum + parseCleanNumber(i.price, 0, true), 0);
+
+  const debtItems = itemsData.filter(Mankhul.isDebt);
+
+  const totalDebt = debtItems
     .reduce((sum, i) => sum + parseCleanNumber(i.price, 0, true), 0);
 
   if (elements.statExpenses) {
     elements.statExpenses.textContent = totalExpenses > 0 ? Number(totalExpenses).toLocaleString('en-US') + ' د.ع' : '0 د.ع';
+  }
+  if (elements.statCash) {
+    elements.statCash.textContent = totalCash > 0 ? Number(totalCash).toLocaleString('en-US') + ' د.ع' : '0 د.ع';
+  }
+  if (elements.statDebt) {
+    elements.statDebt.textContent = totalDebt > 0 ? Number(totalDebt).toLocaleString('en-US') + ' د.ع' : '0 د.ع';
+  }
+  if (elements.debtCountBadge) {
+    if (debtItems.length > 0) {
+      elements.debtCountBadge.textContent = debtItems.length;
+      elements.debtCountBadge.classList.remove('hidden');
+    } else {
+      elements.debtCountBadge.classList.add('hidden');
+    }
   }
 }
 
@@ -860,7 +1024,7 @@ function renderInsertedHistory() {
     } else if (item.status === 'partial') {
       statusBadge = `<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 text-indigo-800">شراء جزء (${item.quantityPurchased})</span>`;
     } else if (item.status === 'unavailable') {
-      statusBadge = '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-800">غير متوفر</span>';
+      statusBadge = `<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 text-rose-800">${Mankhul.hasPurchase(item) ? 'استلام ناقص' : 'غير متوفر'}</span>`;
     } else if (item.status === 'completed') {
       statusBadge = '<span class="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 text-emerald-800">مكتمل بالمخزن</span>';
     }
@@ -871,7 +1035,7 @@ function renderInsertedHistory() {
           <div class="flex items-center gap-1.5 flex-wrap">
             <h4 class="font-black text-xs text-slate-900 truncate max-w-[150px] sm:max-w-xs">${escapeHtml(item.name)}</h4>
             <span class="font-bold text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
-              ${item.quantity} ${item.unit}
+              ${item.quantity} ${escapeHtml(item.unit)}
             </span>
             ${getPriorityBadge(item.priority)}
             ${statusBadge}
@@ -887,10 +1051,10 @@ function renderInsertedHistory() {
           <button onclick="openEditModal('${item.id}')" class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-white rounded-lg transition-colors" title="تعديل المادة">
             ✏️
           </button>
-          <button onclick="deleteItem('${item.id}')" class="p-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold rounded-lg text-[10px] flex items-center gap-1 transition-all active:scale-95 shadow-xs" title="حذف المادة">
+          ${!Mankhul.hasPurchase(item) && !Mankhul.isDebt(item) ? `<button onclick="deleteItem('${item.id}')" class="p-1.5 px-2 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold rounded-lg text-[10px] flex items-center gap-1 transition-all active:scale-95 shadow-xs" title="حذف المادة">
             <span>🗑️</span>
             <span>حذف</span>
-          </button>
+          </button>` : ''}
         </div>
       </div>
     `;
@@ -919,7 +1083,7 @@ function renderWarehouse() {
           </div>
           <div class="flex items-center gap-2 mt-1 text-xs text-slate-600">
             <span class="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
-              الكمية: ${item.quantity} ${item.unit}
+              الكمية: ${item.quantity} ${escapeHtml(item.unit)}
             </span>
             ${item.notes ? `<span class="text-slate-400 truncate">📝 ${escapeHtml(item.notes)}</span>` : ''}
           </div>
@@ -960,8 +1124,8 @@ function renderWarehouse() {
               ${getPriorityBadge(item.priority)}
             </div>
             <p class="text-xs text-slate-500 mt-0.5">
-              المطلوب: <span class="font-bold">${item.quantity} ${item.unit}</span> | 
-              المشترى: <span class="font-bold text-emerald-600">${item.quantityPurchased || item.quantity} ${item.unit}</span>
+              المطلوب: <span class="font-bold">${item.quantity} ${escapeHtml(item.unit)}</span> |
+              المشترى: <span class="font-bold text-emerald-600">${item.quantityPurchased || item.quantity} ${escapeHtml(item.unit)}</span>
               ${item.price ? ` | <span class="text-purple-700 font-bold">💰 ${formatPrice(item.price)}</span>` : ''}
             </p>
             ${item.purchasedBy ? `<p class="text-[10px] text-blue-700 font-semibold mt-0.5">🛒 اشتراها: ${escapeHtml(item.purchasedBy.name)}</p>` : ''}
@@ -1026,9 +1190,10 @@ function renderPurchasing() {
             </div>
             <div class="flex flex-wrap items-center gap-2 mt-1 text-xs">
               <span class="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md">
-                الكمية: ${item.quantity} ${item.unit}
+                الكمية: ${item.quantity} ${escapeHtml(item.unit)}
               </span>
               ${item.price ? `<span class="font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">💰 ${formatPrice(item.price)}</span>` : ''}
+              ${item.paymentMethod === 'debt' ? `<span class="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-300">⏳ دين</span>` : (item.price > 0 ? `<span class="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">💵 نقد</span>` : '')}
               ${item.supplier ? `<span class="font-semibold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">🏬 ${escapeHtml(item.supplier)}</span>` : ''}
               ${item.notes ? `<span class="text-slate-500 truncate">📝 ${escapeHtml(item.notes)}</span>` : ''}
             </div>
@@ -1044,7 +1209,7 @@ function renderPurchasing() {
           <div>${statusBadge}</div>
         </div>
 
-        ${item.status === 'pending' || item.status === 'unavailable' ? `
+        ${(item.status === 'pending' || item.status === 'unavailable') && !Mankhul.hasPurchase(item) ? `
           <div class="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-100">
             <button onclick="openPurchaseModal('${item.id}', 'purchased')" 
                     class="py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow flex items-center justify-center gap-1 active:scale-95">
@@ -1060,15 +1225,20 @@ function renderPurchasing() {
             </button>
           </div>
         ` : `
-          <div class="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100">
+          <div class="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100 flex-wrap gap-2">
             <span>تم في: ${formatTime(item.purchasedAt || item.createdAt)}</span>
             <div class="flex items-center gap-2">
+              ${item.paymentMethod === 'debt' && currentUser?.role !== 'warehouse' ? `
+                <button onclick="settleDebtItem('${item.id}')" class="text-amber-800 hover:text-amber-950 font-bold bg-amber-50 hover:bg-amber-100 border border-amber-300 px-2.5 py-1 rounded-lg text-xs flex items-center gap-1 active:scale-95 transition-all shadow-xs" title="تسديد دين المادة">
+                  <span>💰 تسديد الدين</span>
+                </button>
+              ` : ''}
               <button onclick="openItemTimeline('${item.id}')" class="text-indigo-600 hover:underline font-bold text-[11px]">
                 تتبع الحركة 🕒
               </button>
-              <button onclick="revertToPending('${item.id}')" class="text-blue-600 hover:underline font-bold text-[11px]">
+              ${!Mankhul.hasPurchase(item) && !item.confirmedBy ? `<button onclick="revertToPending('${item.id}')" class="text-blue-600 hover:underline font-bold text-[11px]">
                 تعديل الحالة 🔄
-              </button>
+              </button>` : ''}
             </div>
           </div>
         `}
@@ -1082,7 +1252,7 @@ function renderArchive() {
   const filtered = getFilteredArchiveItems();
 
   // تحديث مؤشرات الفلترة
-  const isCustomFilterActive = (filterStatusVal !== 'all' || filterPriorityVal !== 'all' || filterDateFromVal || filterDateToVal);
+  const isCustomFilterActive = (filterStatusVal !== 'all' || filterPriorityVal !== 'all' || filterPaymentVal !== 'all' || filterDateFromVal || filterDateToVal);
   if (elements.filterActiveIndicator) {
     elements.filterActiveIndicator.classList.toggle('hidden', !isCustomFilterActive);
   }
@@ -1109,7 +1279,7 @@ function renderArchive() {
       statusLabel = 'مكتمل ومستلم بالمخزن ✅';
       statusColor = 'bg-emerald-100 text-emerald-800';
     } else if (item.status === 'unavailable') {
-      statusLabel = 'غير متوفر / نقص لم يجهز ❌';
+      statusLabel = Mankhul.hasPurchase(item) ? 'استلام ناقص / متبقي للمخزن ⚠️' : 'غير متوفر في السوق ❌';
       statusColor = 'bg-rose-100 text-rose-800';
     } else if (item.status === 'partial') {
       statusLabel = 'تم شراء جزء ⚠️';
@@ -1131,10 +1301,11 @@ function renderArchive() {
               ${getPriorityBadge(item.priority)}
             </div>
             <p class="text-slate-500 text-[11px] mt-0.5">
-              المطلوب: <b>${item.quantity} ${item.unit}</b>
+              المطلوب: <b>${item.quantity} ${escapeHtml(item.unit)}</b>
               ${item.quantityPurchased ? ` | المشترى: <b>${item.quantityPurchased}</b>` : ''}
               ${item.receivedQuantity ? ` | المستلم: <b>${item.receivedQuantity}</b>` : ''}
               ${item.price ? ` | السعر: <b class="text-purple-700 font-bold">${formatPrice(item.price)}</b>` : ''}
+              ${item.paymentMethod === 'debt' ? `<span class="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.2 rounded font-bold border border-amber-300">⏳ مسجل دين</span>` : (item.price > 0 ? `<span class="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-bold border border-emerald-200">💵 مدفوع نقداً</span>` : '')}
             </p>
           </div>
           <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${statusColor}">${statusLabel}</span>
@@ -1156,7 +1327,12 @@ function renderArchive() {
             <button onclick="openItemTimeline('${item.id}')" class="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-0.5">
               <span>🕒</span> <span>المسار</span>
             </button>
-            ${item.status === 'unavailable' || item.status === 'partial' || item.status === 'completed' ? `
+            ${item.paymentMethod === 'debt' && currentUser?.role !== 'warehouse' ? `
+              <button onclick="settleDebtItem('${item.id}')" class="text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-2 py-0.5 rounded font-bold text-[10px] flex items-center gap-0.5 shadow-xs transition-all" title="تسديد الدين">
+                <span>💰</span> <span>تسديد الدين</span>
+              </button>
+            ` : ''}
+            ${currentUser?.role !== 'purchasing' && (item.status === 'unavailable' || item.status === 'partial' || item.status === 'completed') ? `
               <button onclick="reorderItem('${item.id}')" class="text-emerald-700 hover:underline font-bold">
                 طلب مرة أخرى 🔄
               </button>
@@ -1166,7 +1342,7 @@ function renderArchive() {
                 ✏️
               </button>
             ` : ''}
-            ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'warehouse') ? `
+            ${currentUser && !Mankhul.hasPurchase(item) && !Mankhul.isDebt(item) && (currentUser.role === 'admin' || currentUser.role === 'warehouse') ? `
               <button onclick="deleteItem('${item.id}')" class="text-rose-400 hover:text-rose-600 font-bold" title="حذف المادة">
                 حذف 🗑️
               </button>
@@ -1224,7 +1400,7 @@ elements.addUserForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const name = elements.newUserName.value.trim();
   const username = elements.newUserUsername.value.trim();
-  const password = elements.newUserPassword.value.trim();
+  const password = elements.newUserPassword.value;
   const role = elements.newUserRole.value;
 
   if (!name || !username || !password) return;
@@ -1232,7 +1408,7 @@ elements.addUserForm.addEventListener('submit', async (e) => {
   setButtonLoading(elements.addUserSubmitBtn, true, elements.addUserSubmitBtn ? elements.addUserSubmitBtn.innerHTML : null, 'جاري الإنشاء...');
 
   try {
-    const res = await fetch('/api/admin/users', {
+    const res = await apiFetch('/api/admin/users', {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ name, username, password, role })
@@ -1241,7 +1417,7 @@ elements.addUserForm.addEventListener('submit', async (e) => {
     if (res.ok && (data.success || data.success === undefined)) {
       elements.newUserName.value = '';
       elements.newUserUsername.value = '';
-      elements.newUserPassword.value = '1234';
+      elements.newUserPassword.value = '';
       showToast('تمت الإضافة', `تم إنشاء حساب للموظف ${name}`, '👤', 'purple');
       try { await fetchAdminUsers(); } catch (e) {}
     } else {
@@ -1293,7 +1469,7 @@ if (elements.changePasswordForm) {
   elements.changePasswordForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = elements.changePassUserId.value;
-    const newPass = elements.changePassInput.value.trim();
+    const newPass = elements.changePassInput.value;
     if (!id || !newPass) return;
 
     const user = usersData.find(u => u.id === id);
@@ -1302,7 +1478,7 @@ if (elements.changePasswordForm) {
     setButtonLoading(elements.changePassSubmitBtn, true, elements.changePassSubmitBtn ? elements.changePassSubmitBtn.innerHTML : null, 'جاري الحفظ...');
 
     try {
-      const res = await fetch(`/api/admin/users/${id}`, {
+      const res = await apiFetch(`/api/admin/users/${id}`, {
         method: 'PUT',
         headers: authHeaders(),
         body: JSON.stringify({ password: newPass })
@@ -1331,7 +1507,7 @@ async function deleteUser(id, name) {
   const displayName = name || (user ? user.name : 'الموظف');
   if (!confirm(`هل أنت متأكد من حذف حساب الموظف (${displayName})؟ لن يتمكن من الدخول للنظام بعد ذلك.`)) return;
   try {
-    const res = await fetch(`/api/admin/users/${id}`, {
+    const res = await apiFetch(`/api/admin/users/${id}`, {
       method: 'DELETE',
       headers: authHeaders()
     });
@@ -1365,7 +1541,7 @@ elements.addItemForm.addEventListener('submit', async (e) => {
   setButtonLoading(elements.submitItemBtn, true, elements.submitItemBtn ? elements.submitItemBtn.innerHTML : null, 'جاري الإرسال...');
 
   try {
-    const res = await fetch('/api/items', {
+    const res = await apiFetch('/api/items', {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ name, quantity, unit, notes, priority })
@@ -1405,6 +1581,12 @@ function openEditModal(id) {
   if (!item) return;
 
   editingItemId = id;
+  editingItemVersion = item.version || 0;
+  const allowFinancialEdit = currentUser?.role === 'admin' && Mankhul.hasPurchase(item);
+  if (elements.editItemPrice) elements.editItemPrice.disabled = !allowFinancialEdit;
+  if (elements.editItemSupplier) elements.editItemSupplier.disabled = currentUser?.role !== 'admin';
+  document.querySelectorAll('input[name="edit-item-payment-method"]').forEach(input => { input.disabled = true; });
+  if (elements.editItemQuantity) elements.editItemQuantity.disabled = Mankhul.hasPurchase(item);
   if (elements.editItemName) elements.editItemName.value = item.name || '';
   if (elements.editItemQuantity) elements.editItemQuantity.value = item.quantity || 1;
   if (elements.editItemUnit) elements.editItemUnit.value = item.unit || 'قطعة';
@@ -1415,6 +1597,11 @@ function openEditModal(id) {
   const priorityRadios = document.querySelectorAll('input[name="edit-item-priority"]');
   priorityRadios.forEach(radio => {
     radio.checked = radio.value === (item.priority || 'normal');
+  });
+
+  const paymentRadios = document.querySelectorAll('input[name="edit-item-payment-method"]');
+  paymentRadios.forEach(radio => {
+    radio.checked = radio.value === (item.paymentMethod || 'cash');
   });
 
   if (elements.editItemModal) elements.editItemModal.classList.remove('hidden');
@@ -1445,19 +1632,23 @@ if (elements.editItemForm) {
       return;
     }
 
-    const payload = { name, quantity, unit, notes, priority };
-    if (elements.editItemPrice) {
+    const payload = { name, quantity, unit, notes, priority, version: editingItemVersion };
+    if (elements.editItemPrice && !elements.editItemPrice.disabled) {
       const p = parseCleanNumber(elements.editItemPrice.value, -1, true);
       if (p >= 0) payload.price = p;
     }
-    if (elements.editItemSupplier) {
+    if (elements.editItemSupplier && !elements.editItemSupplier.disabled) {
       payload.supplier = elements.editItemSupplier.value.trim();
+    }
+    const editPaymentRadio = document.querySelector('input[name="edit-item-payment-method"]:checked');
+    if (editPaymentRadio && !editPaymentRadio.disabled) {
+      payload.paymentMethod = editPaymentRadio.value;
     }
 
     setButtonLoading(elements.editModalSaveBtn, true, elements.editModalSaveBtn ? elements.editModalSaveBtn.innerHTML : null, 'جاري الحفظ...');
 
     try {
-      const res = await fetch(`/api/items/${editingItemId}`, {
+      const res = await apiFetch(`/api/items/${editingItemId}`, {
         method: 'PUT',
         headers: authHeaders(),
         body: JSON.stringify(payload)
@@ -1488,7 +1679,7 @@ function openPurchaseModal(id, action) {
 
   elements.modalItemInfo.innerHTML = `
     <p class="font-bold">${escapeHtml(item.name)}</p>
-    <p class="text-slate-500">الكمية المطلوبة: ${item.quantity} ${item.unit}</p>
+    <p class="text-slate-500">الكمية المطلوبة: ${item.quantity} ${escapeHtml(item.unit)}</p>
   `;
 
   // ذكاء الأسعار التلقائي: استخراج آخر سعر ومورد مسجل للمادة
@@ -1527,13 +1718,16 @@ function openPurchaseModal(id, action) {
     elements.modalReasonFields.classList.add('hidden');
     if (priceFields) priceFields.classList.remove('hidden');
     if (supplierFields) supplierFields.classList.remove('hidden');
-    elements.modalPurchasedQty.value = Math.max(1, Math.floor(item.quantity / 2));
+    if (elements.modalPaymentFields) elements.modalPaymentFields.classList.remove('hidden');
+    elements.modalPurchasedQty.max = Math.max(0.01, Number(item.quantity) - 0.01);
+    elements.modalPurchasedQty.value = Math.max(0.01, Math.round(Number(item.quantity) * 50) / 100);
   } else if (currentModalAction === 'unavailable') {
     elements.modalTitle.textContent = 'تسجيل مادة غير متوفرة / لم تجهز';
     elements.modalPartialFields.classList.add('hidden');
     elements.modalReasonFields.classList.remove('hidden');
     if (priceFields) priceFields.classList.add('hidden');
     if (supplierFields) supplierFields.classList.add('hidden');
+    if (elements.modalPaymentFields) elements.modalPaymentFields.classList.add('hidden');
     elements.modalMissingReason.value = '';
   } else {
     // شراء كامل مع إمكانية توثيق السعر والمحل فوراً
@@ -1542,7 +1736,14 @@ function openPurchaseModal(id, action) {
     elements.modalReasonFields.classList.add('hidden');
     if (priceFields) priceFields.classList.remove('hidden');
     if (supplierFields) supplierFields.classList.remove('hidden');
+    if (elements.modalPaymentFields) elements.modalPaymentFields.classList.remove('hidden');
   }
+
+  // ضبط خيار طريقة الدفع (نقد / دين)
+  const modalPaymentRadios = document.querySelectorAll('input[name="modal-payment-method"]');
+  modalPaymentRadios.forEach(radio => {
+    radio.checked = radio.value === (item.paymentMethod || 'cash');
+  });
 
   elements.purchaseModal.classList.remove('hidden');
 }
@@ -1550,11 +1751,11 @@ function openPurchaseModal(id, action) {
 elements.modalConfirmBtn.addEventListener('click', async () => {
   if (!currentModalItem) return;
 
-  const body = {};
+  const body = { version: currentModalItem.version || 0 };
   if (currentModalAction === 'partial') {
     const qty = parseCleanNumber(elements.modalPurchasedQty.value, 0);
-    if (!qty || qty <= 0) {
-      showToast('تنبيه', 'يرجى تحديد كمية صحيحة', '⚠️', 'amber');
+    if (!qty || qty <= 0 || qty >= Number(currentModalItem.quantity)) {
+      showToast('تنبيه', 'أدخل كمية موجبة أقل من المطلوب للشراء الجزئي', '⚠️', 'amber');
       return;
     }
     body.status = 'partial';
@@ -1568,6 +1769,9 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
   }
 
   if (currentModalAction !== 'unavailable') {
+    const paymentRadio = document.querySelector('input[name="modal-payment-method"]:checked');
+    body.paymentMethod = paymentRadio ? paymentRadio.value : 'cash';
+
     if (elements.modalPurchasedPrice) {
       const p = parseCleanNumber(elements.modalPurchasedPrice.value, -1, true);
       if (p >= 0) {
@@ -1582,7 +1786,7 @@ elements.modalConfirmBtn.addEventListener('click', async () => {
   setButtonLoading(elements.modalConfirmBtn, true, elements.modalConfirmBtn ? elements.modalConfirmBtn.innerHTML : null, 'جاري الحفظ...');
 
   try {
-    const res = await fetch(`/api/items/${currentModalItem.id}/purchase`, {
+    const res = await apiFetch(`/api/items/${currentModalItem.id}/purchase`, {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify(body)
@@ -1610,14 +1814,14 @@ async function confirmInventoryFast(id) {
   try {
     const item = itemsData.find(i => i.id === id);
     const received = item ? (item.quantityPurchased || item.quantity) : 1;
-    const res = await fetch(`/api/items/${id}/confirm`, {
+    const res = await apiFetch(`/api/items/${id}/confirm`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ status: 'completed', receivedQuantity: received, inventoryNotes: 'مستلمة ومطابقة' })
+      body: JSON.stringify({ status: 'completed', receivedQuantity: received, inventoryNotes: 'مستلمة ومطابقة', version: item?.version || 0 })
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.success === undefined)) {
-      showToast('اكتمل الجرد', 'تم تأكيد الاستلام ودخول المادة للمخزن', '✅', 'emerald');
+      showToast('تم الجرد', data.item?.status === 'unavailable' ? 'تم حفظ المستلم والمتبقي؛ يمكنك طلب الكمية الناقصة من السجل' : 'تم تأكيد الاستلام ودخول المادة للمخزن', '✅', 'emerald');
       try { await fetchItems(); } catch (e) {}
     } else {
       showToast('تعذر التأكيد', data.error || 'فشل تأكيد الاستلام من الخادم', '⚠️', 'rose');
@@ -1635,7 +1839,7 @@ function openInventoryModal(id) {
   currentModalItem = item;
   elements.invModalItemInfo.innerHTML = `
     <p class="font-bold">${escapeHtml(item.name)}</p>
-    <p class="text-slate-500">المطلوب: ${item.quantity} ${item.unit} | المشترى: ${item.quantityPurchased || item.quantity} ${item.unit}</p>
+    <p class="text-slate-500">المطلوب: ${item.quantity} ${escapeHtml(item.unit)} | المشترى: ${item.quantityPurchased || item.quantity} ${escapeHtml(item.unit)}</p>
   `;
   elements.invModalReceivedQty.value = item.quantityPurchased || item.quantity;
   elements.invModalNotes.value = '';
@@ -1650,15 +1854,15 @@ elements.invModalCompleteBtn.addEventListener('click', async () => {
   setButtonLoading(elements.invModalCompleteBtn, true, elements.invModalCompleteBtn ? elements.invModalCompleteBtn.innerHTML : null, 'جاري التأكيد...');
 
   try {
-    const res = await fetch(`/api/items/${currentModalItem.id}/confirm`, {
+    const res = await apiFetch(`/api/items/${currentModalItem.id}/confirm`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ status: 'completed', receivedQuantity: receivedQty, inventoryNotes: notes })
+      body: JSON.stringify({ status: 'completed', receivedQuantity: receivedQty, inventoryNotes: notes, version: currentModalItem.version || 0 })
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.success === undefined)) {
       elements.inventoryModal.classList.add('hidden');
-      showToast('اكتمل الجرد', 'تم حفظ جرد المادة في المخزن', '📦', 'emerald');
+      showToast('تم الجرد', data.item?.status === 'unavailable' ? 'تم حفظ المستلم والمتبقي؛ يمكنك طلب الكمية الناقصة من السجل' : 'تم حفظ جرد المادة في المخزن', '📦', 'emerald');
       try { await fetchItems(); } catch (e) {}
     } else {
       showToast('تعذر الحفظ', data.error || 'فشل تأكيد الاستلام من الخادم', '⚠️', 'rose');
@@ -1678,10 +1882,10 @@ elements.invModalUnsuppliedBtn.addEventListener('click', async () => {
   setButtonLoading(elements.invModalUnsuppliedBtn, true, elements.invModalUnsuppliedBtn ? elements.invModalUnsuppliedBtn.innerHTML : null, 'جاري القيد...');
 
   try {
-    const res = await fetch(`/api/items/${currentModalItem.id}/confirm`, {
+    const res = await apiFetch(`/api/items/${currentModalItem.id}/confirm`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ status: 'unavailable', inventoryNotes: notes })
+      body: JSON.stringify({ status: 'unavailable', receivedQuantity: parseCleanNumber(elements.invModalReceivedQty.value, 0), inventoryNotes: notes, version: currentModalItem.version || 0 })
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.success === undefined)) {
@@ -1704,14 +1908,14 @@ elements.invModalCloseBtn.addEventListener('click', () => elements.inventoryModa
 elements.notifyWarehouseBtn.addEventListener('click', async () => {
   if (!confirm('هل تريد إرسال إشعار لموظف المخزن بأن المواد تم شراؤها وجاهزة للجرد الآن؟')) return;
   try {
-    const res = await fetch('/api/purchases/notify-warehouse', {
+    const res = await apiFetch('/api/purchases/notify-warehouse', {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({ message: 'تم شراء المواد من السوق وهي جاهزة للجرد في المخزن.' })
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.success === undefined)) {
-      showToast('تم التنبيه 📢', 'وصل الإشعار فوراً لهاتف موظف المخزن', '🚚', 'blue');
+      showToast('تم التنبيه 📢', 'تم حفظ الإشعار ليظهر للمخزن عند الاتصال', '🚚', 'blue');
     } else {
       showToast('تعذر التنبيه', data.error || 'فشل إرسال الإشعار للمخزن', '⚠️', 'rose');
     }
@@ -1723,10 +1927,10 @@ elements.notifyWarehouseBtn.addEventListener('click', async () => {
 
 async function revertToPending(id) {
   try {
-    const res = await fetch(`/api/items/${id}/purchase`, {
+    const res = await apiFetch(`/api/items/${id}/purchase`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ status: 'pending', missingReason: '' })
+      body: JSON.stringify({ status: 'pending', missingReason: '', version: itemsData.find(i => i.id === id)?.version || 0 })
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && (data.success || data.success === undefined)) {
@@ -1743,8 +1947,9 @@ async function revertToPending(id) {
 
 async function reorderItem(id) {
   try {
-    const res = await fetch(`/api/items/${id}/reorder`, {
+    const res = await apiFetch(`/api/items/${id}/reorder`, {
       method: 'POST',
+      body: JSON.stringify({ version: itemsData.find(i => i.id === id)?.version || 0 }),
       headers: authHeaders()
     });
     const data = await res.json().catch(() => ({}));
@@ -1763,8 +1968,9 @@ async function reorderItem(id) {
 async function deleteItem(id) {
   if (!confirm('هل أنت متأكد من حذف هذه المادة؟')) return;
   try {
-    const res = await fetch(`/api/items/${id}`, {
+    const res = await apiFetch(`/api/items/${id}`, {
       method: 'DELETE',
+      body: JSON.stringify({ version: itemsData.find(i => i.id === id)?.version || 0 }),
       headers: authHeaders()
     });
     const data = await res.json().catch(() => ({}));
@@ -1839,73 +2045,31 @@ elements.soundToggleBtn.addEventListener('click', () => {
 let previousItemsCount = -1;
 let previousPendingCheck = -1;
 
-function initSocket() {
-  if (typeof io === 'function') {
-    try {
-      socket = io({ autoConnect: false, timeout: 3000 });
-      socket.connect();
-
-      socket.on('item:added', (data) => {
-        fetchItems();
-        if (!currentUser) return;
-        if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
-          playNotificationSound('chime');
-          showToast(data.notification.title, data.notification.body, '📦', 'blue');
-        }
-      });
-
-      socket.on('item:purchased', (data) => {
-        fetchItems();
-        if (!currentUser) return;
-        if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
-          playNotificationSound('chime');
-          showToast(data.notification.title, data.notification.body, '🛒', 'emerald');
-        }
-      });
-
-      socket.on('notification:delivery', (data) => {
-        if (!currentUser) return;
-        if (currentUser.role === 'warehouse' || currentUser.role === 'admin') {
-          playNotificationSound('alert');
-          showToast(data.title, data.body, '🚚', 'amber');
-        }
-      });
-
-      socket.on('item:confirmed', (data) => {
-        fetchItems();
-        if (!currentUser) return;
-        if (currentUser.role === 'purchasing' || currentUser.role === 'admin') {
-          showToast(data.notification.title, data.notification.body, '✅', 'emerald');
-        }
-      });
-
-      socket.on('item:deleted', () => {
-        fetchItems();
-      });
-    } catch (e) {
-      console.log('Socket.io fallback to Cloudflare smart sync');
-    }
+function connectSocket() {
+  if (typeof io !== 'function' || !sessionToken) return;
+  if (socket) socket.disconnect();
+  socket = io({ auth: { token: sessionToken }, timeout: 3000 });
+  for (const name of ['item:added', 'item:purchased', 'item:confirmed', 'item:updated', 'item:deleted']) {
+    socket.on(name, data => {
+      if (!currentUser) return;
+      if (data.notification) handleIncomingNotifications([data.notification]);
+      void fetchItems();
+    });
   }
-
-  // مزامنة ذكية دورية تعمل تلقائياً على كلاودفلاير أونلاين مع قفل لمنع تداخل الطلبات
-  let isPolling = false;
-  setInterval(async () => {
-    if (!currentUser || isPolling) return;
-    isPolling = true;
-    try {
-      const res = await fetch('/api/items', { headers: authHeaders() });
-      const data = await res.json();
-      if (data.success && Array.isArray(data.items)) {
-        itemsData = data.items;
-        handleIncomingNotifications(data.notifications);
-        renderAll();
-      }
-    } catch (err) {
-      // الصمت في حال انقطاع الشبكة اللحظي
-    } finally {
-      isPolling = false;
-    }
-  }, 3500);
+  for (const name of ['notification:delivery', 'notification:debt_settled']) socket.on(name, data => handleIncomingNotifications([data]));
+}
+function initSocket() {
+  if (!window.MANKHUL_API_BASE) {
+    const script = document.createElement('script');
+    script.src = '/socket.io/socket.io.js';
+    script.onload = connectSocket;
+    document.head.appendChild(script);
+  }
+  setInterval(() => {
+    if (currentUser && !document.hidden && !socket?.connected) void fetchItems();
+  }, 10000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) void fetchItems(); });
+  window.addEventListener('online', () => { void verifySession(); void fetchItems(); });
 }
 
 function formatTime(isoStr) {
@@ -1990,7 +2154,7 @@ function openItemTimeline(id) {
       <div class="flex items-start justify-between gap-2">
         <div>
           <h4 class="font-black text-sm text-slate-900">${escapeHtml(item.name)}</h4>
-          <p class="text-xs text-slate-500 mt-0.5">الكمية المطلوبة: <b class="text-slate-800">${item.quantity} ${item.unit}</b></p>
+          <p class="text-xs text-slate-500 mt-0.5">الكمية المطلوبة: <b class="text-slate-800">${item.quantity} ${escapeHtml(item.unit)}</b></p>
         </div>
         <div>
           ${getPriorityBadge(item.priority) || '<span class="text-[10px] bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full font-bold">عادي</span>'}
@@ -2009,7 +2173,7 @@ function openItemTimeline(id) {
           <span class="text-[10px] text-slate-400 font-normal">${formatTime(item.createdAt)}</span>
         </div>
         <p class="text-slate-600">بواسطة: <b>${escapeHtml(item.createdBy ? item.createdBy.name : 'موظف المخزن')}</b></p>
-        <p class="text-slate-500">الكمية المطلوبة: ${item.quantity} ${item.unit}</p>
+        <p class="text-slate-500">الكمية المطلوبة: ${item.quantity} ${escapeHtml(item.unit)}</p>
         ${item.notes ? `<p class="text-slate-600 bg-slate-50 p-1.5 rounded mt-1 border border-slate-100">📝 ملاحظة: ${escapeHtml(item.notes)}</p>` : ''}
       </div>
     </div>
@@ -2030,7 +2194,7 @@ function openItemTimeline(id) {
         </div>
       </div>
     `;
-  } else if (item.status === 'unavailable') {
+  } else if (item.status === 'unavailable' && !Mankhul.hasPurchase(item)) {
     step2 = `
       <div class="relative flex items-start gap-3">
         <div class="timeline-dot bg-rose-600 text-white font-bold flex items-center justify-center shadow-sm">✕</div>
@@ -2055,7 +2219,7 @@ function openItemTimeline(id) {
             <span class="text-[10px] text-slate-400 font-normal">${formatTime(item.purchasedAt || item.createdAt)}</span>
           </div>
           <p class="text-slate-600">المشتري: <b>${escapeHtml(item.purchasedBy ? item.purchasedBy.name : 'مسؤول المشتريات')}</b></p>
-          <p class="text-slate-700">الكمية المشتراة: <b>${item.quantityPurchased || item.quantity} ${item.unit}</b></p>
+          <p class="text-slate-700">الكمية المشتراة: <b>${item.quantityPurchased || item.quantity} ${escapeHtml(item.unit)}</b></p>
           ${item.price ? `<p class="text-purple-700 font-bold">💰 السعر: ${formatPrice(item.price)}</p>` : ''}
           ${item.supplier ? `<p class="text-blue-800 font-semibold">🏬 المحل / المورد: ${escapeHtml(item.supplier)}</p>` : ''}
         </div>
@@ -2065,17 +2229,17 @@ function openItemTimeline(id) {
 
   // 3. مرحلة الجرد والمطابقة بالمخزن
   let step3 = '';
-  if (item.status === 'completed') {
+  if (item.confirmedBy || item.status === 'completed') {
     step3 = `
       <div class="relative flex items-start gap-3">
         <div class="timeline-dot bg-emerald-600 text-white font-bold flex items-center justify-center shadow-sm">3</div>
         <div class="flex-1 bg-emerald-50 p-3 rounded-xl border border-emerald-200 shadow-sm text-xs space-y-1">
           <div class="flex items-center justify-between font-bold text-emerald-900">
-            <span>تم الجرد ودخول المخزن 📦</span>
+            <span>${item.status === 'completed' ? 'تم الجرد ودخول المخزن 📦' : 'استلام ناقص بالمخزن ⚠️'}</span>
             <span class="text-[10px] text-emerald-700 font-normal">${formatTime(item.completedAt || item.purchasedAt)}</span>
           </div>
           <p class="text-slate-600">المستلم: <b>${escapeHtml(item.confirmedBy ? item.confirmedBy.name : 'أمين المخزن')}</b></p>
-          <p class="text-slate-700">الكمية المستلمة: <b>${item.receivedQuantity !== undefined ? item.receivedQuantity : (item.quantityPurchased || item.quantity)} ${item.unit}</b></p>
+          <p class="text-slate-700">الكمية المستلمة: <b>${item.receivedQuantity !== undefined ? item.receivedQuantity : (item.quantityPurchased || item.quantity)} ${escapeHtml(item.unit)}</b></p>
           ${item.inventoryNotes ? `<p class="text-slate-600 bg-white/70 p-1.5 rounded">ملاحظة الاستلام: ${escapeHtml(item.inventoryNotes)}</p>` : ''}
         </div>
       </div>
@@ -2105,7 +2269,12 @@ function openItemTimeline(id) {
   }
 
   if (elements.timelineStepsContainer) {
-    elements.timelineStepsContainer.innerHTML = step1 + step2 + step3;
+    const actions = { created: 'إنشاء الطلب', 'direct-purchase': 'شراء مباشر', purchase: 'تسجيل الشراء', confirm: 'جرد المخزن', edit: 'تعديل البيانات', 'settle-debt': 'تسديد الدين' };
+    const audit = (item.history || []).map(entry => {
+      const details = entry.action === 'settle-debt' ? ' — ' + formatPrice(entry.details?.amount) : '';
+      return '<p class="text-xs text-slate-600">' + escapeHtml(actions[entry.action] || entry.action) + ' — ' + escapeHtml(entry.by?.name || '') + escapeHtml(details) + '<br><span dir="ltr" class="text-[10px]">' + escapeHtml(Mankhul.absoluteDate(entry.at)) + '</span></p>';
+    }).join('');
+    elements.timelineStepsContainer.innerHTML = step1 + step2 + step3 + (audit ? '<div class="bg-slate-50 p-3 rounded-xl space-y-2"><h4 class="text-xs font-bold">سجل العمليات</h4>' + audit + '</div>' : '');
   }
 
   if (elements.itemTimelineModal) {
@@ -2177,7 +2346,7 @@ function renderAnalytics() {
 
   // 2. حساب إجمالي المصروفات والرسم البياني للمشتريات
   const purchasedItems = itemsData.filter(i => 
-    ['purchased', 'partial', 'completed'].includes(i.status) && Number(i.price) > 0
+    Mankhul.hasPurchase(i) && Number(i.price) > 0
   );
 
   const totalExpenses = purchasedItems.reduce((sum, i) => sum + (Number(i.price) || 0), 0);
@@ -2210,12 +2379,13 @@ function renderAnalytics() {
         const x = 20 + idx * (barWidth + 10);
         const y = 92 - barH;
         const shortDate = day.slice(5); // MM-DD
+        const valLabel = val >= 1000 ? `${Math.round(val / 1000)}k` : `${val}`;
         return `
           <g class="transition-all hover:opacity-80">
             <title>${day}: ${formatPrice(val)}</title>
             <rect x="${x}" y="${y}" width="${barWidth}" height="${barH}" rx="3" fill="#059669" />
             <text x="${x + barWidth / 2}" y="108" text-anchor="middle" font-size="8" fill="#64748b" font-weight="bold">${shortDate}</text>
-            <text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="bold" class="chart-bar-label">${Math.round(val / 1000)}k</text>
+            <text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="8" fill="#1e293b" font-weight="bold" class="chart-bar-label">${valLabel}</text>
           </g>
         `;
       }).join('');
@@ -2235,8 +2405,8 @@ function renderAnalytics() {
 // ==========================================
 function openVoucherModal() {
   const filtered = getFilteredArchiveItems();
-  const voucherItems = filtered.filter(i => ['purchased', 'partial', 'completed'].includes(i.status));
-  const listToUse = voucherItems.length > 0 ? voucherItems : filtered;
+  const voucherItems = filtered.filter(i => Mankhul.hasPurchase(i));
+  const listToUse = voucherItems;
 
   if (listToUse.length === 0) {
     showToast('تنبيه', 'لا توجد مواد مطابقة في السجل لإصدار سند استلام', '⚠️', 'amber');
@@ -2245,10 +2415,12 @@ function openVoucherModal() {
 
   const dateObj = new Date();
   const dateStr = dateObj.toLocaleDateString('ar-IQ', { year: 'numeric', month: 'numeric', day: 'numeric' });
-  const voucherNum = 'MN-' + Math.floor(1000 + Math.random() * 9000);
+  const voucherNum = 'MN-' + Date.now().toString(36).toUpperCase();
 
   if (elements.voucherNumber) elements.voucherNumber.textContent = voucherNum;
   if (elements.voucherDate) elements.voucherDate.textContent = dateStr;
+  const voucherStatus = document.getElementById('voucher-status');
+  if (voucherStatus) voucherStatus.textContent = listToUse.every(item => item.status === 'completed') ? 'مستلمة بحسب السجل ✓' : 'مشتريات مسجلة — الاستلام غير مكتمل';
 
   let totalQty = 0;
   let totalAmount = 0;
@@ -2264,7 +2436,7 @@ function openVoucherModal() {
         <tr class="border-b border-slate-200">
           <td class="p-2 border border-slate-300 text-center font-bold">${idx + 1}</td>
           <td class="p-2 border border-slate-300 font-bold">${escapeHtml(item.name)}</td>
-          <td class="p-2 border border-slate-300 text-center font-bold">${qty} ${item.unit || 'قطعة'}</td>
+          <td class="p-2 border border-slate-300 text-center font-bold">${qty} ${escapeHtml(item.unit || 'قطعة')}</td>
           <td class="p-2 border border-slate-300">${escapeHtml(item.supplier || '-')}</td>
           <td class="p-2 border border-slate-300 text-center font-bold text-slate-800">${price > 0 ? formatPrice(price) : 'غير مسجل'}</td>
           <td class="p-2 border border-slate-300">${escapeHtml(item.purchasedBy ? item.purchasedBy.name : (item.createdBy ? item.createdBy.name : ''))}</td>
@@ -2273,7 +2445,7 @@ function openVoucherModal() {
     }).join('');
   }
 
-  if (elements.voucherTotalQty) elements.voucherTotalQty.textContent = roundNumber(totalQty);
+  if (elements.voucherTotalQty) elements.voucherTotalQty.textContent = Mankhul.quantityTotals(listToUse, 'quantityPurchased');
   if (elements.voucherTotalAmount) elements.voucherTotalAmount.textContent = formatPrice(totalAmount) || '0 د.ع';
   if (elements.voucherAmountWords) elements.voucherAmountWords.textContent = tafqeetIQD(totalAmount);
 
@@ -2289,6 +2461,381 @@ if (elements.voucherCloseBtn) {
 }
 if (elements.openVoucherBtn) {
   elements.openVoucherBtn.addEventListener('click', openVoucherModal);
+}
+
+function printVoucher() {
+  document.body.classList.add('printing-voucher');
+  window.print();
+  setTimeout(() => {
+    document.body.classList.remove('printing-voucher');
+  }, 1000);
+}
+
+// ==========================================
+// إدارة كشف حساب الديون المعلقة والطباعة والتسديد
+// ==========================================
+function openDebtListModal() {
+  const debtItems = itemsData.filter(i => Mankhul.isDebt(i));
+
+  // تعبئة قائمة الموردين الدائنين
+  if (elements.debtSupplierFilter) {
+    const suppliers = new Set();
+    debtItems.forEach(item => {
+      const s = (item.supplier || '').trim();
+      if (s) suppliers.add(s);
+    });
+
+    const currentSelected = elements.debtSupplierFilter.value;
+    let optionsHtml = '<option value="all">🔍 كافة الموردين والمحلات (عرض عام)</option>';
+    suppliers.forEach(s => {
+      optionsHtml += `<option value="${escapeHtml(s)}">🏬 ${escapeHtml(s)}</option>`;
+    });
+    elements.debtSupplierFilter.innerHTML = optionsHtml;
+
+    if (currentSelected && (currentSelected === 'all' || suppliers.has(currentSelected))) {
+      elements.debtSupplierFilter.value = currentSelected;
+      debtSupplierFilterVal = currentSelected;
+    } else {
+      elements.debtSupplierFilter.value = 'all';
+      debtSupplierFilterVal = 'all';
+    }
+  }
+
+  renderDebtTable();
+
+  if (elements.debtListModal) {
+    elements.debtListModal.classList.remove('hidden');
+  }
+}
+
+function renderDebtTable() {
+  // تصفية المواد الغير مدفوعة (المسجلة دين وسعرها أكبر من صفر)
+  const debtItems = itemsData.filter(i => Mankhul.isDebt(i));
+
+  // فلترة حسب المورد إذا تم اختياره
+  const isSpecificSupplier = (debtSupplierFilterVal && debtSupplierFilterVal !== 'all');
+  const filteredDebts = isSpecificSupplier
+    ? debtItems.filter(i => (i.supplier || '').trim() === debtSupplierFilterVal)
+    : debtItems;
+
+  const dateObj = new Date();
+  const dateStr = dateObj.toLocaleDateString('ar-IQ', { weekday: 'long', year: 'numeric', month: 'numeric', day: 'numeric' });
+  if (elements.debtStatementDate) {
+    elements.debtStatementDate.textContent = dateStr;
+  }
+
+  let totalDebtAmount = 0;
+
+  if (elements.debtItemsTbody) {
+    if (filteredDebts.length === 0) {
+      elements.debtItemsTbody.innerHTML = `
+        <tr>
+          <td colspan="8" class="p-6 text-center text-slate-400 font-semibold bg-slate-50">
+            <span class="text-2xl block mb-1">🎉</span>
+            لا توجد ديون مسجلة معلقة ${isSpecificSupplier ? `للمورد (${escapeHtml(debtSupplierFilterVal)})` : 'حالياً في النظام'}
+          </td>
+        </tr>
+      `;
+    } else {
+      elements.debtItemsTbody.innerHTML = filteredDebts.map((item, idx) => {
+        const qty = item.quantityPurchased || item.quantity;
+        const price = parseCleanNumber(item.price, 0, true);
+        totalDebtAmount += price;
+
+        return `
+          <tr class="border-b border-slate-200 hover:bg-slate-50/70 transition-colors">
+            <td class="p-2 border border-slate-300 text-center font-bold text-slate-600">${idx + 1}</td>
+            <td class="p-2 border border-slate-300 font-bold text-slate-900">${escapeHtml(item.name)}</td>
+            <td class="p-2 border border-slate-300 text-center font-bold text-emerald-800">${qty} ${escapeHtml(item.unit || 'قطعة')}</td>
+            <td class="p-2 border border-slate-300 font-bold text-blue-900">${escapeHtml(item.supplier || 'غير محدد')}</td>
+            <td class="p-2 border border-slate-300 text-center font-black text-amber-900">${formatPrice(price) || '0 د.ع'}</td>
+            <td class="p-2 border border-slate-300 font-semibold text-slate-700">${escapeHtml(item.purchasedBy ? item.purchasedBy.name : (item.createdBy ? item.createdBy.name : '-'))}</td>
+            <td dir="ltr" class="p-2 border border-slate-300 text-center text-[10px] text-slate-500 font-mono">${escapeHtml(Mankhul.absoluteDate(item.purchasedAt || item.createdAt))}</td>
+            <td class="p-2 border border-slate-300 text-center no-print">
+              ${currentUser?.role !== 'warehouse' ? `<button onclick="settleDebtItem('${item.id}')"
+                      class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold shadow-xs active:scale-95 transition-all inline-flex items-center gap-1" title="تسديد هذا الدين وتحويله لنقد">
+                <span>💰</span> <span>تسديد</span>
+              </button>` : '—'}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  // تحديث عناوين البطاقات والإجماليات لتوضيح ما يطلبه المورد بدقة
+  if (elements.debtModalTotalSumTitle) {
+    if (isSpecificSupplier) {
+      elements.debtModalTotalSumTitle.innerHTML = `إجمالي ما يطلبه المورد: <span class="text-amber-950 font-black">${escapeHtml(debtSupplierFilterVal)}</span> 💰`;
+    } else {
+      elements.debtModalTotalSumTitle.textContent = 'إجمالي الديون المعلقة (كافة الموردين) 💰';
+    }
+  }
+
+  if (elements.debtModalTotalCountTitle) {
+    if (isSpecificSupplier) {
+      elements.debtModalTotalCountTitle.textContent = `مواد مستحقة للمورد (${debtSupplierFilterVal})`;
+    } else {
+      elements.debtModalTotalCountTitle.textContent = 'عدد المواد المسجلة دين';
+    }
+  }
+
+  if (elements.debtStatementBadge) {
+    if (isSpecificSupplier) {
+      elements.debtStatementBadge.textContent = `كشف حساب مستحقات المورد: ${debtSupplierFilterVal}`;
+    } else {
+      elements.debtStatementBadge.textContent = 'كشف حساب ديون المشتريات المعلقة';
+    }
+  }
+
+  if (elements.debtStatementSupplierBox && elements.debtStatementSupplierName) {
+    if (isSpecificSupplier) {
+      elements.debtStatementSupplierName.textContent = debtSupplierFilterVal;
+      elements.debtStatementSupplierBox.classList.remove('hidden');
+    } else {
+      elements.debtStatementSupplierBox.classList.add('hidden');
+    }
+  }
+
+  if (elements.debtTableTotalLabel) {
+    if (isSpecificSupplier) {
+      elements.debtTableTotalLabel.textContent = `إجمالي المبالغ التي يطلبها المورد (${debtSupplierFilterVal})`;
+    } else {
+      elements.debtTableTotalLabel.textContent = 'مجموع مبالغ الديون الكلي';
+    }
+  }
+
+  if (elements.debtModalTotalSum) elements.debtModalTotalSum.textContent = formatPrice(totalDebtAmount) || '0 د.ع';
+  if (elements.debtModalTotalCount) elements.debtModalTotalCount.textContent = filteredDebts.length;
+  if (elements.debtTableTotalAmount) elements.debtTableTotalAmount.textContent = formatPrice(totalDebtAmount) || '0 د.ع';
+  if (elements.debtAmountWords) elements.debtAmountWords.textContent = tafqeetIQD(totalDebtAmount);
+}
+
+function closeDebtListModal() {
+  if (elements.debtListModal) {
+    elements.debtListModal.classList.add('hidden');
+  }
+}
+
+async function settleDebtItem(id, optionalName) {
+  const item = itemsData.find(i => i.id === id);
+  const displayName = (item && item.name) || optionalName || 'المادة';
+  const priceStr = item && item.price ? ` بمبلغ ${formatPrice(item.price)}` : '';
+
+  if (!confirm(`هل تم تسديد دين (${displayName})${priceStr} بالكامل؟\nسيتم تحويل المادة إلى (مدفوع نقداً 💵).`)) {
+    return;
+  }
+
+  try {
+    const res = await apiFetch(`/api/items/${id}/settle-debt`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ version: item?.version || 0 })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && (data.success || data.success === undefined)) {
+      showToast('تم التسديد بنجاح 💰', `تم تسديد دين ${displayName} وتحويله لنقد`, '💵', 'emerald');
+      try {
+        await fetchItems();
+        if (elements.debtListModal && !elements.debtListModal.classList.contains('hidden')) {
+          renderDebtTable();
+        }
+      } catch (err) {}
+    } else {
+      showToast('تعذر التسديد', data.error || 'فشل تحديث حالة الدين في الخادم', '⚠️', 'rose');
+    }
+  } catch (err) {
+    console.error('Settle debt error:', err);
+    showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لتسديد الدين', '⚠️', 'rose');
+  }
+}
+
+function printDebtStatement() {
+  document.body.classList.add('printing-debt');
+  window.print();
+  setTimeout(() => {
+    document.body.classList.remove('printing-debt');
+  }, 1000);
+}
+
+function exportDebtListToExcel() {
+  const debtItems = itemsData.filter(i => Mankhul.isDebt(i));
+  const filteredDebts = (debtSupplierFilterVal && debtSupplierFilterVal !== 'all')
+    ? debtItems.filter(i => (i.supplier || '').trim() === debtSupplierFilterVal)
+    : debtItems;
+
+  if (filteredDebts.length === 0) {
+    showToast('لا توجد ديون', 'لا توجد بيانات ديون للتصدير حالياً', 'ℹ️', 'slate');
+    return;
+  }
+
+  const headers = [
+    'ت',
+    'اسم المادة',
+    'الكمية',
+    'الوحدة',
+    'المحل / المورد الدائن',
+    'مبلغ الدين (د.ع)',
+    'المشتري',
+    'تاريخ التسجيل',
+    'حالة الدفع'
+  ];
+
+  const rows = filteredDebts.map((item, idx) => [
+    idx + 1,
+    Mankhul.csvCell(item.name || ''),
+    parseCleanNumber(item.quantityPurchased || item.quantity, 1),
+    Mankhul.csvCell(item.unit || 'قطعة'),
+    Mankhul.csvCell(item.supplier || 'غير محدد'),
+    parseCleanNumber(item.price, 0, true),
+    Mankhul.csvCell(item.purchasedBy?.name || item.createdBy?.name || ''),
+    Mankhul.csvCell(Mankhul.absoluteDate(item.purchasedAt || item.createdAt)),
+    '"مسجل دين معلق"'
+  ]);
+
+  const totalDebt = filteredDebts.reduce((sum, i) => sum + parseCleanNumber(i.price, 0, true), 0);
+  const summaryRow = [
+    '"الإجمالي"',
+    `"مجموع المواد: ${filteredDebts.length}"`,
+    '""',
+    '""',
+    '""',
+    totalDebt,
+    '""',
+    '""',
+    '""'
+  ];
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(',')), summaryRow.join(',')].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const supplierSuffix = debtSupplierFilterVal !== 'all' ? `_${debtSupplierFilterVal}` : '';
+  a.download = `كشف_ديون_مشتريات_مقهى_منخل${supplierSuffix}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showToast('تم التصدير بنجاح', 'تم تنزيل كشف الديون كملف CSV مصفى', '📊', 'emerald');
+}
+
+if (elements.openDebtListBtn) {
+  elements.openDebtListBtn.addEventListener('click', openDebtListModal);
+}
+if (elements.statDebtBox) {
+  elements.statDebtBox.addEventListener('click', openDebtListModal);
+}
+if (elements.debtModalCloseBtn) {
+  elements.debtModalCloseBtn.addEventListener('click', closeDebtListModal);
+}
+if (elements.debtPrintBtn) {
+  elements.debtPrintBtn.addEventListener('click', printDebtStatement);
+}
+if (elements.debtExportExcelBtn) {
+  elements.debtExportExcelBtn.addEventListener('click', exportDebtListToExcel);
+}
+if (elements.debtSupplierFilter) {
+  elements.debtSupplierFilter.addEventListener('change', (e) => {
+    debtSupplierFilterVal = e.target.value;
+    renderDebtTable();
+  });
+}
+
+// ==========================================
+// إدارة الشراء المباشر من السوق (مادة جديدة لم يذكرها المخزن)
+// ==========================================
+function openDirectPurchaseModal() {
+  if (elements.directItemName) elements.directItemName.value = '';
+  if (elements.directItemQuantity) elements.directItemQuantity.value = 1;
+  if (elements.directItemPrice) elements.directItemPrice.value = '';
+  if (elements.directItemSupplier) elements.directItemSupplier.value = '';
+  if (elements.directItemNotes) elements.directItemNotes.value = '';
+
+  const normalPriority = document.querySelector('input[name="direct-item-priority"][value="normal"]');
+  if (normalPriority) normalPriority.checked = true;
+
+  const cashPayment = document.querySelector('input[name="direct-payment-method"][value="cash"]');
+  if (cashPayment) cashPayment.checked = true;
+
+  if (elements.directPurchaseModal) {
+    elements.directPurchaseModal.classList.remove('hidden');
+  }
+  if (elements.directItemName) {
+    setTimeout(() => elements.directItemName.focus(), 80);
+  }
+}
+
+function closeDirectPurchaseModal() {
+  if (elements.directPurchaseModal) {
+    elements.directPurchaseModal.classList.add('hidden');
+  }
+}
+
+if (elements.openDirectPurchaseBtn) {
+  elements.openDirectPurchaseBtn.addEventListener('click', openDirectPurchaseModal);
+}
+if (elements.directPurchaseCloseBtn) {
+  elements.directPurchaseCloseBtn.addEventListener('click', closeDirectPurchaseModal);
+}
+if (elements.directPurchaseCancelBtn) {
+  elements.directPurchaseCancelBtn.addEventListener('click', closeDirectPurchaseModal);
+}
+
+if (elements.directPurchaseForm) {
+  elements.directPurchaseForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const name = (elements.directItemName ? elements.directItemName.value : '').trim();
+    const quantity = parseCleanNumber(elements.directItemQuantity ? elements.directItemQuantity.value : 1, 1);
+    const unit = elements.directItemUnit ? elements.directItemUnit.value : 'قطعة';
+    const price = parseCleanNumber(elements.directItemPrice ? elements.directItemPrice.value : 0, 0, true);
+    const supplier = (elements.directItemSupplier ? elements.directItemSupplier.value : '').trim();
+    const notes = (elements.directItemNotes ? elements.directItemNotes.value : '').trim();
+
+    const priorityEl = document.querySelector('input[name="direct-item-priority"]:checked');
+    const priority = priorityEl ? priorityEl.value : 'normal';
+
+    const paymentEl = document.querySelector('input[name="direct-payment-method"]:checked');
+    const paymentMethod = paymentEl ? paymentEl.value : 'cash';
+
+    if (!name) {
+      showToast('تنبيه', 'يرجى كتابة اسم المادة المشتراة', '⚠️', 'amber');
+      return;
+    }
+
+    setButtonLoading(elements.directPurchaseSubmitBtn, true, elements.directPurchaseSubmitBtn ? elements.directPurchaseSubmitBtn.innerHTML : null, 'جاري حفظ الشراء...');
+
+    try {
+      const res = await apiFetch('/api/purchases/direct', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ name, quantity, unit, price, supplier, paymentMethod, notes, priority })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && (data.success || data.success === undefined)) {
+        closeDirectPurchaseModal();
+        const payText = paymentMethod === 'debt' ? ' (مسجل دين ⏳)' : ' (نقداً 💵)';
+        showToast('تم الشراء المباشر بنجاح 🛒', `تم تسجيل شراء ${name}${payText} وإرسالها فوراً للمخزن للجرد والاستلام`, '✨', 'emerald');
+
+        // إضافة المادة لقائمة الاقتراحات السريعة
+        if (elements.commonItemsList && ![...elements.commonItemsList.options].some(o => o.value === name)) {
+          const opt = document.createElement('option');
+          opt.value = name;
+          elements.commonItemsList.appendChild(opt);
+        }
+
+        try { await fetchItems(); } catch (err) {}
+      } else {
+        showToast('تعذر الحفظ', data.error || 'فشل حفظ عملية الشراء في الخادم', '⚠️', 'rose');
+      }
+    } catch (err) {
+      console.error('Direct purchase error:', err);
+      showToast('خطأ في الاتصال', 'تعذر الاتصال بالخادم لحفظ الشراء', '⚠️', 'rose');
+    } finally {
+      setButtonLoading(elements.directPurchaseSubmitBtn, false);
+    }
+  });
 }
 
 // ==========================================
@@ -2313,10 +2860,12 @@ if (elements.toggleAnalyticsBtn) {
 if (elements.resetFiltersBtn) {
   elements.resetFiltersBtn.addEventListener('click', () => {
     filterStatusVal = 'all';
+    filterPaymentVal = 'all';
     filterPriorityVal = 'all';
     filterDateFromVal = '';
     filterDateToVal = '';
     if (elements.filterStatus) elements.filterStatus.value = 'all';
+    if (elements.filterPayment) elements.filterPayment.value = 'all';
     if (elements.filterPriority) elements.filterPriority.value = 'all';
     if (elements.filterDateFrom) elements.filterDateFrom.value = '';
     if (elements.filterDateTo) elements.filterDateTo.value = '';
@@ -2327,6 +2876,13 @@ if (elements.resetFiltersBtn) {
 if (elements.filterStatus) {
   elements.filterStatus.addEventListener('change', (e) => {
     filterStatusVal = e.target.value;
+    renderArchive();
+  });
+}
+
+if (elements.filterPayment) {
+  elements.filterPayment.addEventListener('change', (e) => {
+    filterPaymentVal = e.target.value;
     renderArchive();
   });
 }
@@ -2359,7 +2915,7 @@ let deferredPrompt = null;
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').then(reg => {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
       console.log('Service Worker registered:', reg.scope);
     }).catch(err => {
       console.warn('Service Worker registration failed:', err);
@@ -2439,20 +2995,20 @@ if (elements.exportExcelBtn) {
     };
 
     const rows = itemsToExport.map(item => [
-      `"${(item.name || '').replace(/"/g, '""')}"`,
+      Mankhul.csvCell(item.name || ''),
       parseCleanNumber(item.quantity, 1),
-      `"${item.unit || 'قطعة'}"`,
+      Mankhul.csvCell(item.unit || 'قطعة'),
       `"${priorityMap[item.priority] || 'عادي'}"`,
-      `"${statusMap[item.status] || item.status}"`,
+      Mankhul.csvCell(statusMap[item.status] || item.status),
       parseCleanNumber(item.quantityPurchased, 0),
       parseCleanNumber(item.price, 0, true),
-      `"${(item.supplier || '').replace(/"/g, '""')}"`,
+      Mankhul.csvCell(item.supplier || ''),
       parseCleanNumber(item.receivedQuantity, 0),
-      `"${(item.notes || '').replace(/"/g, '""')}"`,
-      `"${(item.missingReason || '').replace(/"/g, '""')}"`,
-      `"${(item.inventoryNotes || '').replace(/"/g, '""')}"`,
-      `"${formatTime(item.createdAt)}"`,
-      `"${item.purchasedBy ? item.purchasedBy.name : ''}"`
+      Mankhul.csvCell(item.notes || ''),
+      Mankhul.csvCell(item.missingReason || ''),
+      Mankhul.csvCell(item.inventoryNotes || ''),
+      Mankhul.csvCell(Mankhul.absoluteDate(item.createdAt)),
+      Mankhul.csvCell(item.purchasedBy?.name || '')
     ]);
 
     // حساب الإجماليات بدقة تامة
@@ -2460,19 +3016,19 @@ if (elements.exportExcelBtn) {
     const totalPurchasedQty = itemsToExport.reduce((sum, i) => sum + parseCleanNumber(i.quantityPurchased, 0), 0);
     const totalReceivedQty = itemsToExport.reduce((sum, i) => sum + parseCleanNumber(i.receivedQuantity, 0), 0);
     const totalExpenses = itemsToExport
-      .filter(i => ['purchased', 'partial', 'completed'].includes(i.status))
+      .filter(i => Mankhul.hasPurchase(i))
       .reduce((sum, i) => sum + parseCleanNumber(i.price, 0, true), 0);
 
     const summaryRow = [
       '"الإجمالي الكلي"',
-      roundNumber(totalQty),
+      Mankhul.csvCell(Mankhul.quantityTotals(itemsToExport, 'quantity')),
       '""',
       '""',
       `"إجمالي المواد: ${itemsToExport.length}"`,
-      roundNumber(totalPurchasedQty),
+      Mankhul.csvCell(Mankhul.quantityTotals(itemsToExport, 'quantityPurchased')),
       totalExpenses,
       '""',
-      roundNumber(totalReceivedQty),
+      Mankhul.csvCell(Mankhul.quantityTotals(itemsToExport, 'receivedQuantity')),
       '""',
       '""',
       '""',
@@ -2490,7 +3046,7 @@ if (elements.exportExcelBtn) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('تم التصدير بنجاح', 'تم تنزيل ملف الإكسل المصفى متضمناً الموردين والإجماليات', '📊', 'emerald');
+    showToast('تم التصدير بنجاح', 'تم تنزيل ملف CSV المصفى متضمناً الموردين والإجماليات', '📊', 'emerald');
   });
 }
 
@@ -2522,6 +3078,8 @@ window.addEventListener('keydown', (e) => {
     if (elements.editItemModal) elements.editItemModal.classList.add('hidden');
     if (elements.itemTimelineModal) elements.itemTimelineModal.classList.add('hidden');
     if (elements.voucherPrintModal) elements.voucherPrintModal.classList.add('hidden');
+    if (elements.debtListModal) elements.debtListModal.classList.add('hidden');
+    if (elements.directPurchaseModal) elements.directPurchaseModal.classList.add('hidden');
     if (elements.changePasswordModal) elements.changePasswordModal.classList.add('hidden');
   }
 });
@@ -2530,6 +3088,14 @@ window.addEventListener('keydown', (e) => {
 window.currentUser = currentUser;
 window.openItemTimeline = openItemTimeline;
 window.openVoucherModal = openVoucherModal;
+window.printVoucher = printVoucher;
+window.openDebtListModal = openDebtListModal;
+window.closeDebtListModal = closeDebtListModal;
+window.settleDebtItem = settleDebtItem;
+window.printDebtStatement = printDebtStatement;
+window.exportDebtListToExcel = exportDebtListToExcel;
+window.openDirectPurchaseModal = openDirectPurchaseModal;
+window.closeDirectPurchaseModal = closeDirectPurchaseModal;
 window.openPurchaseModal = openPurchaseModal;
 window.openEditModal = openEditModal;
 window.confirmInventoryFast = confirmInventoryFast;
@@ -2542,19 +3108,18 @@ window.deleteUser = deleteUser;
 
 async function verifySession() {
   if (!currentUser || !currentUser.id) return;
+  const usedToken = sessionToken;
   try {
-    const res = await fetch('/api/auth/me', { headers: authHeaders() });
+    const res = await apiFetch('/api/auth/me', { headers: authHeaders() });
     const data = await res.json().catch(() => ({}));
+    if (usedToken !== sessionToken) return;
     if (data.success && data.user) {
       currentUser = data.user;
       window.currentUser = currentUser;
       localStorage.setItem('mankhul_user', JSON.stringify(currentUser));
       applyUserRole(true);
     } else if (res.status === 401) {
-      currentUser = null;
-      window.currentUser = null;
-      localStorage.removeItem('mankhul_user');
-      applyUserRole(false);
+      clearSession();
     }
   } catch (e) {
     // Keep offline fallback session
@@ -2565,7 +3130,5 @@ async function verifySession() {
 applyTheme();
 elements.soundIcon.textContent = soundEnabled ? '🔔' : '🔕';
 applyUserRole(true);
-initSocket();
-fetchItems();
-verifySession();
+verifySession().then(() => { initSocket(); void fetchItems(); });
 
